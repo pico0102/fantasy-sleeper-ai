@@ -1,0 +1,31 @@
+# Version control
+.git
+.gitignore
+.github/
+
+# Secrets — never bake into image
+.env
+.env.*
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Tests (not needed at runtime)
+tests/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Pytest / editor artefacts
+.pytest_cache/
+.vscode/
+.idea/
+*.DS_Store
+
+# Docs
+README*.md
