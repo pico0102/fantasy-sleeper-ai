@@ -351,9 +351,10 @@ def ask_gemini(question: str, context: str) -> str:
         f"</user_question>"
     )
     models_to_try = [
-        "gemini-3.5-flash",
-        "gemini-3.5-pro",
         "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-2.5-flash",
     ]
 
     # Disable safety filters since "DUI Mugshot" triggers false positives
