@@ -88,9 +88,15 @@ def resolve_player_name(pid: str) -> str:
         ).strip()
     try:
         p = _get(f"{SLEEPER_BASE}/players/nfl/{pid}")
-        return f"{p.get('first_name', '')} {p.get('last_name', '')} ({p.get('team', '?')}, {p.get('position', '?')})"
+        resolved_name = f"{p.get('first_name', '')} {p.get('last_name', '')} ({p.get('team', '?')}, {p.get('position', '?')})".strip()
+        if not resolved_name or resolved_name == "()":
+            resolved_name = pid # fallback if Sleeper returns empty object for defenses sometimes
+        PLAYER_IDS[pid] = resolved_name
+        return resolved_name
     except Exception:
-        return f"Unknown({pid})"
+        fallback = f"Unknown({pid})"
+        PLAYER_IDS[pid] = fallback
+        return fallback
 
 
 def fetch_nfl_state() -> dict:
