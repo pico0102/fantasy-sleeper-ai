@@ -26,3 +26,18 @@ persistent layer.
 - Preseason projections (in `.agents/skills/loser-eats-an-egg/data/`) go stale by
   week 4 — weight recent usage, snap counts, and target share over the bundled
   board after that, and say so when you do.
+
+## Automated Deployment Workflow
+When you make changes to the backend codebase or the frontend (in `Unified Apps/piconeprojects`):
+1. **Git:** Automatically run `git add .`, `git commit -m "..."`, and `git push` on Anthony's behalf without him asking.
+2. **GCP:** After modifying backend Python code in this workspace, always ask Anthony if he wants you to deploy the updates to Google Cloud Run. If he says yes, use your terminal tools to run the following exact PowerShell command:
+   ```powershell
+   gcloud run deploy fantasy-ai-service `
+     --source . `
+     --region us-east1 `
+     --platform managed `
+     --allow-unauthenticated `
+     --set-secrets "GEMINI_API_KEY=gemini-api-key:latest" `
+     --set-env-vars "SLEEPER_LEAGUE_ID=1389359956657967104" `
+     --set-env-vars "SLEEPER_USER_ID=pinec0ne"
+   ```
