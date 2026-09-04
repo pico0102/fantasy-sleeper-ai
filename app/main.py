@@ -358,10 +358,10 @@ def ask_gemini(question: str, context: str) -> str:
 
     # Disable safety filters since "DUI Mugshot" triggers false positives
     safety_settings = [
-        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        genai.types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
+        genai.types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
+        genai.types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
+        genai.types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
     ]
 
     last_error = None
@@ -374,10 +374,14 @@ def ask_gemini(question: str, context: str) -> str:
                     config=genai.types.GenerateContentConfig(
                         system_instruction=SYSTEM_PROMPT,
                         temperature=0.3,
-                        max_output_tokens=2048,
                         safety_settings=safety_settings,
                     ),
                 )
+                
+                # Check if it was truncated
+                if response.candidates and response.candidates[0].finish_reason != 1:  # 1 is STOP
+                    log.warning(f"Generation stopped early! Finish reason: {response.candidates[0].finish_reason}")
+
                 return response.text or "(Empty response from model)"
             except Exception as e:
                 last_error = e
