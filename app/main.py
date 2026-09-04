@@ -356,12 +356,12 @@ def ask_gemini(question: str, context: str) -> str:
     ]
 
     # Disable safety filters since "DUI Mugshot" triggers false positives
-    # Interactions API uses plain dicts, not types.* wrappers!
+    # Interactions API uses plain dicts and requires a "type" field
     safety_settings = [
-        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        {"type": "safety_setting", "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+        {"type": "safety_setting", "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+        {"type": "safety_setting", "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"type": "safety_setting", "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
     ]
 
     last_error = None
