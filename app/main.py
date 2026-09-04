@@ -10,6 +10,7 @@ import logging
 import os
 import random
 import textwrap
+import time
 from pathlib import Path
 from typing import Any
 
@@ -349,32 +350,35 @@ def ask_gemini(question: str, context: str) -> str:
         f"{question}\n"
         f"</user_question>"
     )
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=0.3,
-                max_output_tokens=2048,
-            ),
-        )
-        return response.text or "(No response from model)"
-    except Exception as e:
-        log.error("Gemini primary model failed (%s), falling back to gemini-3.5-flash", e)
-        try:
-            response = client.models.generate_content(
-                model="gemini-3.5-flash",
-                contents=prompt,
-                config=genai.types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    temperature=0.3,
-                    max_output_tokens=2048,
-                ),
-            )
-            return response.text or "(No response from model)"
-        except Exception as e2:
-            raise HTTPException(status_code=502, detail=f"Gemini error: {e2}") from e2
+    models_to_try = [
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-pro",
+    ]
+
+    last_error = None
+    for model_name in models_to_try:
+        for attempt in range(2):  # Try each model twice
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=genai.types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                        temperature=0.3,
+                        max_output_tokens=2048,
+                    ),
+                )
+                return response.text or "(Empty response from model)"
+            except Exception as e:
+                last_error = e
+                log.warning(f"Attempt {attempt + 1} with {model_name} failed: {e}")
+                time.sleep(1.5)  # Backoff before retrying
+
+    raise HTTPException(
+        status_code=502, 
+        detail=f"All Gemini models are currently overloaded. Please wait a minute and try again. Last error: {last_error}"
+    )
 
 # ---------------------------------------------------------------------------
 # FastAPI app
