@@ -351,39 +351,34 @@ def ask_gemini(question: str, context: str) -> str:
         f"</user_question>"
     )
     models_to_try = [
-        "gemini-3.6-flash",
-        "gemini-3.5-flash",
+        "gemini-3.7-flash",
         "gemini-3.5-flash-lite",
-        "gemini-2.5-flash",
     ]
 
     # Disable safety filters since "DUI Mugshot" triggers false positives
+    # Interactions API uses plain dicts, not types.* wrappers!
     safety_settings = [
-        genai.types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
-        genai.types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
-        genai.types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
-        genai.types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
     ]
 
     last_error = None
     for model_name in models_to_try:
         for attempt in range(2):  # Try each model twice
             try:
-                response = client.models.generate_content(
+                # Use the new Interactions API (SDK >= 2.0.0)
+                interaction = client.interactions.create(
                     model=model_name,
-                    contents=prompt,
-                    config=genai.types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT,
-                        temperature=0.3,
-                        safety_settings=safety_settings,
-                    ),
+                    input=prompt,
+                    system_instruction=SYSTEM_PROMPT,
+                    safety_settings=safety_settings,
+                    store=False,  # We don't need persistent multi-turn storage for this simple bot
                 )
                 
-                # Check if it was truncated
-                if response.candidates and response.candidates[0].finish_reason != 1:  # 1 is STOP
-                    log.warning(f"Generation stopped early! Finish reason: {response.candidates[0].finish_reason}")
-
-                return response.text or "(Empty response from model)"
+                # output_text is a convenience property on the Interaction object
+                return interaction.output_text or "(Empty response from model)"
             except Exception as e:
                 last_error = e
                 log.warning(f"Attempt {attempt + 1} with {model_name} failed: {e}")
