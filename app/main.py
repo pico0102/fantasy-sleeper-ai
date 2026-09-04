@@ -26,8 +26,8 @@ from pydantic import BaseModel
 load_dotenv()
 
 GEMINI_API_KEY   = os.environ["GEMINI_API_KEY"]
-SLEEPER_LEAGUE_ID = os.getenv("SLEEPER_LEAGUE_ID", "1389359956657967104")
-SLEEPER_USER_ID   = os.getenv("SLEEPER_USER_ID",   "pinec0ne")
+SLEEPER_LEAGUE_ID = os.getenv("SLEEPER_LEAGUE_ID", "1389359956657967104").strip()
+SLEEPER_USER_ID   = os.getenv("SLEEPER_USER_ID",   "pinec0ne").strip()
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
