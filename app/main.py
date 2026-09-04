@@ -340,9 +340,14 @@ SYSTEM_PROMPT = textwrap.dedent("""\
 def ask_gemini(question: str, context: str) -> str:
     client = get_gemini_client()
     prompt = (
-        f"{context}\n\n"
-        f"---\n"
-        f"**User question:** {question}"
+        f"Please use the following live league data as context to answer the user's question:\n\n"
+        f"<league_data>\n"
+        f"{context}\n"
+        f"</league_data>\n\n"
+        f"Answer this question as the General Manager:\n"
+        f"<user_question>\n"
+        f"{question}\n"
+        f"</user_question>"
     )
     try:
         response = client.models.generate_content(
