@@ -355,15 +355,6 @@ def ask_gemini(question: str, context: str) -> str:
         "gemini-3.5-flash-lite",
     ]
 
-    # Disable safety filters since "DUI Mugshot" triggers false positives
-    # Interactions API uses plain dicts and requires a "type" field
-    safety_settings = [
-        {"type": "safety_setting", "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-        {"type": "safety_setting", "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-        {"type": "safety_setting", "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-        {"type": "safety_setting", "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-    ]
-
     last_error = None
     for model_name in models_to_try:
         for attempt in range(2):  # Try each model twice
@@ -373,7 +364,6 @@ def ask_gemini(question: str, context: str) -> str:
                     model=model_name,
                     input=prompt,
                     system_instruction=SYSTEM_PROMPT,
-                    safety_settings=safety_settings,
                     store=False,  # We don't need persistent multi-turn storage for this simple bot
                 )
                 
