@@ -16,6 +16,7 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from google import genai
 from pydantic import BaseModel
@@ -156,10 +157,27 @@ def build_context(question: str) -> str:
         my_player_names  = [resolve_player_name(pid) for pid in my_roster_players]
         my_starter_names = [resolve_player_name(pid) for pid in my_starters]
 
+        # Build standings
+        standings = []
+        for r in rosters:
+            rid = r.get("roster_id")
+            s = r.get("settings", {})
+            wins = s.get("wins", 0)
+            losses = s.get("losses", 0)
+            pts = s.get("fpts", 0) + (s.get("fpts_decimal", 0) / 100.0)
+            standings.append((wins, pts, rid))
+        standings.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        
+        standing_lines = []
+        for i, (w, pts, rid) in enumerate(standings, 1):
+            tag = " (ANTHONY)" if rid == MY_ROSTER_ID else ""
+            standing_lines.append(f"{i}. Roster {rid}{tag}: {w} W - {losses} L, {pts:.1f} pts")
+
         ctx_parts.append(
             f"## Anthony's Roster (roster_id {MY_ROSTER_ID})\n"
             f"**Starters:** {', '.join(my_starter_names) or 'none set'}\n"
-            f"**Full roster:** {', '.join(my_player_names)}"
+            f"**Full roster:** {', '.join(my_player_names)}\n\n"
+            f"## League Standings\n" + "\n".join(standing_lines)
         )
     except Exception as e:
         ctx_parts.append(f"## Anthony's Roster\nUnavailable ({e})")
@@ -214,6 +232,28 @@ def build_context(question: str) -> str:
         )
     except Exception as e:
         ctx_parts.append(f"## Trending Adds\nUnavailable ({e})")
+
+    # 4.5 Recent League Transactions
+    try:
+        if str(week).isdigit():
+            txs = fetch_transactions(int(week))
+            tx_lines = []
+            for tx in txs[:10]: # Up to 10 most recent transactions
+                ttype = tx.get("type", "unknown")
+                if ttype in ("waiver", "free_agent", "trade"):
+                    adds = tx.get("adds") or {}
+                    drops = tx.get("drops") or {}
+                    add_strs = [f"Added {resolve_player_name(p)}" for p in adds.keys()]
+                    drop_strs = [f"Dropped {resolve_player_name(p)}" for p in drops.keys()]
+                    status = tx.get("status", "complete")
+                    tx_lines.append(f"- {ttype.upper()} ({status}): {', '.join(add_strs + drop_strs)}")
+            
+            ctx_parts.append(
+                f"## Recent League Transactions (Week {week})\n"
+                + ("\n".join(tx_lines) if tx_lines else "  No recent transactions.")
+            )
+    except Exception as e:
+        ctx_parts.append(f"## Recent Transactions\nUnavailable ({e})")
 
     # 5. Preseason projection summary for Anthony's roster (flag if week ≥ 4)
     try:
@@ -277,7 +317,10 @@ SYSTEM_PROMPT = textwrap.dedent("""\
     Always use the **lineup-allocation method** for positional rank — never raw depth stats.
     Priority for waiver adds: receiver upside first.
 
-    ### Your job
+    ### Your job (Full GM Mode)
+    - Act as a comprehensive General Manager for Anthony's team.
+    - Proactively analyze the provided League Standings and Recent Transactions to identify shifting power dynamics.
+    - Suggest trades by looking at other rosters that might be weak at RB but strong at WR (or vice versa), using the standings and recent transaction trends.
     - Lead with the recommendation, then the reasoning.
     - Show numbers behind every claim (projected points, snap %, target share when available).
     - Flag uncertainty clearly — say when you're guessing.
@@ -329,6 +372,14 @@ app = FastAPI(
     title="Fantasy Football AI — Tony Romo's DUI Mugshot",
     description="AI-powered assistant for the 'Loser eats an egg' Sleeper league",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ---------------------------------------------------------------------------
