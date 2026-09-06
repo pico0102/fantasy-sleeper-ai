@@ -209,6 +209,20 @@ def build_context(question: str) -> str:
             f"**Analytics:** Overall Rank {my_analytics.get('overall_rank')}/12 | RB Rank {my_analytics.get('rb_in_lineup_rank')}/12 | WR Rank {my_analytics.get('wr_in_lineup_rank')}/12\n\n"
             f"## League Standings (by Optimal Lineup pts)\n" + "\n".join(standing_lines)
         )
+        
+        all_rosters_lines = ["\n## Opponent Rosters"]
+        for rid, tname in roster_names.items():
+            if str(rid) == str(MY_ROSTER_ID): continue
+            opp_roster_data = roster_map.get(rid, [])
+            opp_tot, opp_lu = best_lineup(opp_roster_data)
+            starters = ", ".join(f"{p['slot']}:{p['name']}" for p in opp_lu)
+            bench = ", ".join(p['name'] for p in opp_roster_data if p['name'] not in [x['name'] for x in opp_lu])
+            all_rosters_lines.append(f"### {tname} (Roster {rid})")
+            all_rosters_lines.append(f"Starters: {starters}")
+            all_rosters_lines.append(f"Bench: {bench}\n")
+            
+        ctx_parts.append("\n".join(all_rosters_lines))
+        
     except Exception as e:
         ctx_parts.append(f"## Anthony's Roster\nUnavailable ({e})")
         roster_names = {}
@@ -330,6 +344,7 @@ SYSTEM_PROMPT = textwrap.dedent("""\
     - Leverage the structured GM analytics provided in the context (Overall/RB/WR ranks) to identify team weaknesses.
     - Suggest optimal waiver claims using the strict priority: WR upside first, RB handcuffs second.
     - Never recommend 2nd QB or TE unless starter is out.
+    - **Strict Waiver Drops:** ONLY recommend dropping the exact "Suggested Drop" provided in the Waiver Wire Intelligence section. Do not invent your own drop candidates or recommend dropping kickers/defenses.
     - **Advanced GM - Matchups & Weather:** Use the provided schedule & weather data to break ties. Upgrade kickers in Domes. Downgrade pass-catchers in heavy rain/wind.
     - **Advanced GM - Bye Weeks:** When evaluating trades, ALWAYS check for future bye week conflicts that could leave the roster with an unfillable hole.
     - **Advanced GM - Handcuffs:** Elevate proactive RB handcuffs if you see their starter is injured on the waiver wire intelligence report.
