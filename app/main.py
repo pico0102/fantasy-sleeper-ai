@@ -118,6 +118,15 @@ def fetch_nfl_state() -> dict:
 def fetch_all_rosters() -> list[dict]:
     return _get(f"{SLEEPER_BASE}/league/{LEAGUE_ID}/rosters?{_cb()}")
 
+def fetch_league_users() -> dict[str, str]:
+    users = _get(f"{SLEEPER_BASE}/league/{LEAGUE_ID}/users?{_cb()}")
+    owner_map = {}
+    for u in users:
+        team_name = u.get("metadata", {}).get("team_name") or u.get("display_name", "Unknown")
+        owner_id = str(u.get("user_id"))
+        owner_map[owner_id] = team_name
+    return owner_map
+
 def fetch_matchups(week: int) -> list[dict]:
     return _get(f"{SLEEPER_BASE}/league/{LEAGUE_ID}/matchups/{week}?{_cb()}")
 
@@ -163,11 +172,18 @@ def build_context(question: str) -> str:
     try:
         t_rosters = time.time()
         rosters = fetch_all_rosters()
-        log.info(f"fetch_all_rosters took {time.time() - t_rosters:.3f}s")
+        owner_map = fetch_league_users()
+        log.info(f"fetch_all_rosters and users took {time.time() - t_rosters:.3f}s")
         t_parse = time.time()
+        
         roster_map = {}
+        roster_names = {}
         for r in rosters:
             rid = r.get("roster_id")
+            owner_id = str(r.get("owner_id"))
+            team_name = owner_map.get(owner_id, f"Roster {rid}")
+            roster_names[rid] = team_name
+            
             plist = r.get("players") or []
             roster_map[rid] = [_build_player_dict(pid) for pid in plist]
 
@@ -180,7 +196,8 @@ def build_context(question: str) -> str:
         standing_lines = []
         for rid, stat in analytics.items():
             tag = " (ANTHONY)" if rid == MY_ROSTER_ID else ""
-            standing_lines.append(f"{stat['overall_rank']}. Roster {rid}{tag}: {stat['overall_pts']:.1f} pts (RB rank {stat['rb_in_lineup_rank']}, WR rank {stat['wr_in_lineup_rank']})")
+            tname = roster_names.get(rid, f"Roster {rid}")
+            standing_lines.append(f"{stat['overall_rank']}. {tname}{tag}: {stat['overall_pts']:.1f} pts (RB rank {stat['rb_in_lineup_rank']}, WR rank {stat['wr_in_lineup_rank']})")
 
         my_starters_str = ", ".join(f"{p['slot']}:{p['name']}" for p in my_lu)
         my_bench_str = ", ".join(p['name'] for p in my_roster_data if p['name'] not in [x['name'] for x in my_lu])
@@ -194,6 +211,7 @@ def build_context(question: str) -> str:
         )
     except Exception as e:
         ctx_parts.append(f"## Anthony's Roster\nUnavailable ({e})")
+        roster_names = {}
 
     try:
         t_matchups = time.time()
@@ -213,7 +231,8 @@ def build_context(question: str) -> str:
                     opponent_rid = m.get("roster_id")
                     opp_points = m.get("points", 0)
                     break
-        ctx_parts.append(f"## Week {week} Matchup\nMy score: {my_points} | Opponent (roster {opponent_rid}): {opp_points}")
+        opp_name = roster_names.get(opponent_rid, f"roster {opponent_rid}")
+        ctx_parts.append(f"## Week {week} Matchup\nMy score: {my_points} | Opponent ({opp_name}): {opp_points}")
     except Exception as e:
         ctx_parts.append(f"## Week {week} Matchup\nUnavailable ({e})")
 
@@ -292,8 +311,8 @@ def ask_gemini(question: str, context: str) -> str:
         f"Live league data context:\n<league_data>\n{context}\n</league_data>\n\n"
         f"Answer this question as the GM:\n<user_question>\n{question}\n</user_question>"
     )
-    # The user updated settings to use Gemini 3.1 Pro (High)
-    models_to_try = ["gemini-3.1-pro-preview", "gemini-3.7-flash", "gemini-3.5-flash-lite"]
+    # The user updated settings to use Gemini 3.1 Pro (High), but asked the bot to use a fast/light model
+    models_to_try = ["gemini-3.7-flash", "gemini-3.5-flash-lite"]
 
     last_error = None
     for model_name in models_to_try:
