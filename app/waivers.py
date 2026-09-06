@@ -135,9 +135,29 @@ def get_waiver_recommendations(
             "recommendation_reason": reason,
         })
 
-    unrostered_targets.sort(key=lambda x: (x["priority_rank"], -x["add_count"]))
+    # 5. Proactive Handcuffing Scan
+    handcuff_notes = []
+    try:
+        from app.gm_engine import _BOARD
+        for p in _BOARD:
+            pos = p.get("pos")
+            posrank = p.get("posrank", "")
+            if pos == "RB" and posrank.startswith("RB"):
+                try:
+                    rank_num = int(posrank.replace("RB", ""))
+                    # Only check top 32 running backs (the starters)
+                    if rank_num <= 32:
+                        name = p.get("name", "")
+                        # Find player id from all_players
+                        pid = next((k for k, v in all_players.items() if v.get("position") == "RB" and v.get("team") == p.get("team") and v.get("last_name") in name), None)
+                        if pid and all_players[pid].get("injury_status") in ("IR", "Out", "PUP"):
+                            handcuff_notes.append(f"⚠️ {name} is {all_players[pid].get('injury_status')}. Prioritize their backup!")
+                except Exception:
+                    pass
+    except Exception as e:
+        log.warning(f"Handcuff scan failed: {e}")
 
-    # 5. Identify recommended drop candidate from Anthony's bench
+    # 6. Identify recommended drop candidate from Anthony's bench
     bench_pids = [p for p in my_roster_players if p not in my_starters]
     recommended_drop = None
     
@@ -190,6 +210,7 @@ def get_waiver_recommendations(
         "roster_id": my_roster_id,
         "week": current_week,
         "targets": unrostered_targets[:8],
+        "handcuff_notes": handcuff_notes,
         "recommended_drop": recommended_drop,
         "faab_guidance": {
             "budget_total": 100,

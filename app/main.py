@@ -245,8 +245,10 @@ def build_context(question: str) -> str:
             w_lines.append(f"- {t['name']} ({t['position']}): {t['recommendation_reason']}")
         rec_drop = waiver_data.get("recommended_drop")
         drop_str = f"\n**Suggested Drop:** {rec_drop['name']} ({rec_drop['reason']})" if rec_drop else ""
+        handcuff_notes = waiver_data.get("handcuff_notes", [])
+        hc_str = "\n**Handcuff Alerts:**\n" + "\n".join(handcuff_notes) if handcuff_notes else ""
         
-        ctx_parts.append(f"## Waiver Wire Intelligence\n" + ("\n".join(w_lines) or "None found") + drop_str)
+        ctx_parts.append(f"## Waiver Wire Intelligence\n" + ("\n".join(w_lines) or "None found") + hc_str + drop_str)
     except Exception as e:
         ctx_parts.append(f"## Waiver Wire Intelligence\nUnavailable ({e})")
 
@@ -272,8 +274,35 @@ def build_context(question: str) -> str:
     stale_note = "  ⚠️ Preseason projections — weight recent usage over these after week 4.\n" if (isinstance(week, int) and week >= 4) else ""
     ctx_parts.append(f"## Notes\n{stale_note}")
 
+    if isinstance(week, int) or (isinstance(week, str) and week.isdigit()):
+        t_sched = time.time()
+        sched = fetch_espn_schedule(int(week))
+        log.info(f"fetch_espn_schedule took {time.time() - t_sched:.3f}s")
+        ctx_parts.append(sched)
+
     log.info(f"Total build_context took {time.time() - t_start:.3f}s")
     return "\n\n".join(ctx_parts)
+
+def fetch_espn_schedule(week: int) -> str:
+    try:
+        r = requests.get(f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week={week}", timeout=5)
+        data = r.json()
+        lines = []
+        for ev in data.get("events", []):
+            name = ev.get("name")
+            venue = ev.get("competitions", [{}])[0].get("venue", {})
+            indoor = venue.get("indoor", False)
+            weather = ev.get("weather", {}).get("displayValue", "Clear")
+            temp = ev.get("weather", {}).get("temperature", "")
+            if indoor:
+                weather_str = "Dome (Indoor)"
+            else:
+                weather_str = f"{weather}, {temp}F" if temp else weather
+            lines.append(f"- {name}: {weather_str}")
+        return f"## Week {week} Schedule & Weather\n" + "\n".join(lines)
+    except Exception as e:
+        log.warning(f"Failed to fetch ESPN schedule: {e}")
+        return f"## Week {week} Schedule & Weather\nUnavailable"
 
 # ---------------------------------------------------------------------------
 # Gemini client
@@ -301,6 +330,9 @@ SYSTEM_PROMPT = textwrap.dedent("""\
     - Leverage the structured GM analytics provided in the context (Overall/RB/WR ranks) to identify team weaknesses.
     - Suggest optimal waiver claims using the strict priority: WR upside first, RB handcuffs second.
     - Never recommend 2nd QB or TE unless starter is out.
+    - **Advanced GM - Matchups & Weather:** Use the provided schedule & weather data to break ties. Upgrade kickers in Domes. Downgrade pass-catchers in heavy rain/wind.
+    - **Advanced GM - Bye Weeks:** When evaluating trades, ALWAYS check for future bye week conflicts that could leave the roster with an unfillable hole.
+    - **Advanced GM - Handcuffs:** Elevate proactive RB handcuffs if you see their starter is injured on the waiver wire intelligence report.
     - Keep answers mobile-friendly: scannable, short bullet points, narrow tables.
     - Flag uncertainty clearly — say when you're guessing.
 """)
