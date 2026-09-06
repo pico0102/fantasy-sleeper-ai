@@ -95,6 +95,11 @@ def get_waiver_recommendations(
             
             pinfo = all_players.get(pid)
             if pinfo and isinstance(pinfo, dict):
+                # Bug fix: Filter out players actively on IR, PUP, or Out
+                inj = pinfo.get("injury_status")
+                if inj in ("IR", "PUP", "Out"):
+                    continue
+                    
                 first = pinfo.get("first_name", "")
                 last = pinfo.get("last_name", "")
                 if first or last:
@@ -135,14 +140,50 @@ def get_waiver_recommendations(
     # 5. Identify recommended drop candidate from Anthony's bench
     bench_pids = [p for p in my_roster_players if p not in my_starters]
     recommended_drop = None
-    if bench_pids:
-        drop_pid = bench_pids[-1]
-        drop_name = player_id_resolver(drop_pid) if player_id_resolver else drop_pid
-        recommended_drop = {
-            "player_id": drop_pid,
-            "name": drop_name,
-            "reason": "End-of-bench piece; low projected starting lineup allocation.",
-        }
+    
+    try:
+        from app.main import get_all_players
+        from app.gm_engine import get_player_projection
+        all_players = get_all_players()
+        
+        valid_drops = []
+        for pid in bench_pids:
+            pinfo = all_players.get(pid, {})
+            pos = pinfo.get("position", "")
+            # Do not ever drop Defense or Kicker since we usually only carry 1
+            if pos not in ("K", "DEF"):
+                dname = player_id_resolver(pid) if player_id_resolver else pid
+                clean_name = dname.split(" (")[0] if " (" in dname else dname
+                proj_pts = get_player_projection(clean_name).get("pts", 0.0)
+                valid_drops.append((pid, dname, proj_pts))
+                
+        if valid_drops:
+            valid_drops.sort(key=lambda x: x[2]) # lowest projected pts first
+            drop_pid, drop_name, _ = valid_drops[0]
+            recommended_drop = {
+                "player_id": drop_pid,
+                "name": drop_name,
+                "reason": "End-of-bench depth; lowest projected value among non-K/DEF.",
+            }
+        elif bench_pids:
+            # Fallback
+            drop_pid = bench_pids[-1]
+            drop_name = player_id_resolver(drop_pid) if player_id_resolver else drop_pid
+            recommended_drop = {
+                "player_id": drop_pid,
+                "name": drop_name,
+                "reason": "End-of-bench piece.",
+            }
+    except Exception as e:
+        log.warning(f"Error calculating drop candidate: {e}")
+        if bench_pids:
+            drop_pid = bench_pids[-1]
+            drop_name = player_id_resolver(drop_pid) if player_id_resolver else drop_pid
+            recommended_drop = {
+                "player_id": drop_pid,
+                "name": drop_name,
+                "reason": "End-of-bench piece.",
+            }
 
     return {
         "league_id": league_id,
