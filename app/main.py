@@ -71,6 +71,21 @@ def _get(url: str, timeout: int = 10) -> Any:
     r.raise_for_status()
     return r.json()
 
+_ALL_PLAYERS_CACHE: dict[str, Any] | None = None
+
+def get_all_players() -> dict[str, Any]:
+    global _ALL_PLAYERS_CACHE
+    if _ALL_PLAYERS_CACHE is None:
+        try:
+            log.info("Fetching bulk player data from Sleeper...")
+            t0 = time.time()
+            _ALL_PLAYERS_CACHE = _get(f"{SLEEPER_BASE}/players/nfl")
+            log.info(f"Fetched {len(_ALL_PLAYERS_CACHE)} players in {time.time() - t0:.3f}s")
+        except Exception as e:
+            log.error(f"Failed to fetch all players: {e}")
+            _ALL_PLAYERS_CACHE = {}
+    return _ALL_PLAYERS_CACHE
+
 def resolve_player_name(pid: str) -> str:
     if pid in PLAYER_IDS:
         entry = PLAYER_IDS[pid]
@@ -81,16 +96,21 @@ def resolve_player_name(pid: str) -> str:
             f"({entry.get('team', '?')}, {entry.get('position', '?')})"
         ).strip()
     try:
-        p = _get(f"{SLEEPER_BASE}/players/nfl/{pid}")
-        resolved_name = f"{p.get('first_name', '')} {p.get('last_name', '')} ({p.get('team', '?')}, {p.get('position', '?')})".strip()
-        if not resolved_name or resolved_name == "()":
-            resolved_name = pid
-        PLAYER_IDS[pid] = resolved_name
-        return resolved_name
-    except Exception:
-        fallback = f"Unknown({pid})"
-        PLAYER_IDS[pid] = fallback
-        return fallback
+        all_players = get_all_players()
+        if pid in all_players:
+            p = all_players[pid]
+            resolved_name = f"{p.get('first_name', '')} {p.get('last_name', '')} ({p.get('team', '?')}, {p.get('position', '?')})".strip()
+            if not resolved_name or resolved_name == "()":
+                resolved_name = pid
+            PLAYER_IDS[pid] = resolved_name
+            return resolved_name
+    except Exception as e:
+        log.warning(f"Error resolving player {pid}: {e}")
+        pass
+        
+    fallback = f"Unknown({pid})"
+    PLAYER_IDS[pid] = fallback
+    return fallback
 
 def fetch_nfl_state() -> dict:
     return _get(f"{SLEEPER_BASE}/state/nfl?{_cb()}")
@@ -125,10 +145,14 @@ def _build_player_dict(pid: str) -> dict:
     }
 
 def build_context(question: str) -> str:
+    log.info("Starting build_context...")
+    t_start = time.time()
     ctx_parts: list[str] = []
 
     try:
+        t_state = time.time()
         state = fetch_nfl_state()
+        log.info(f"fetch_nfl_state took {time.time() - t_state:.3f}s")
         week = state.get("week", "?")
         season = state.get("season", "2026")
         ctx_parts.append(f"## NFL State\nSeason: {season} | Week: {week} | Type: {state.get('season_type', '?')}")
@@ -137,7 +161,10 @@ def build_context(question: str) -> str:
         ctx_parts.append(f"## NFL State\nUnavailable ({e})")
 
     try:
+        t_rosters = time.time()
         rosters = fetch_all_rosters()
+        log.info(f"fetch_all_rosters took {time.time() - t_rosters:.3f}s")
+        t_parse = time.time()
         roster_map = {}
         for r in rosters:
             rid = r.get("roster_id")
@@ -148,6 +175,7 @@ def build_context(question: str) -> str:
         my_analytics = analytics.get(MY_ROSTER_ID, {})
         my_roster_data = roster_map.get(MY_ROSTER_ID, [])
         my_tot, my_lu = best_lineup(my_roster_data)
+        log.info(f"Roster parsing and analytics took {time.time() - t_parse:.3f}s")
 
         standing_lines = []
         for rid, stat in analytics.items():
@@ -168,7 +196,9 @@ def build_context(question: str) -> str:
         ctx_parts.append(f"## Anthony's Roster\nUnavailable ({e})")
 
     try:
+        t_matchups = time.time()
         matchups = fetch_matchups(week)
+        log.info(f"fetch_matchups took {time.time() - t_matchups:.3f}s")
         my_matchup_id = None
         opponent_rid = None
         my_points, opp_points = 0, 0
@@ -188,7 +218,9 @@ def build_context(question: str) -> str:
         ctx_parts.append(f"## Week {week} Matchup\nUnavailable ({e})")
 
     try:
+        t_waivers = time.time()
         waiver_data = get_waiver_recommendations(LEAGUE_ID, MY_ROSTER_ID, resolve_player_name)
+        log.info(f"get_waiver_recommendations took {time.time() - t_waivers:.3f}s")
         w_lines = []
         for t in waiver_data.get("targets", [])[:5]:
             w_lines.append(f"- {t['name']} ({t['position']}): {t['recommendation_reason']}")
@@ -201,7 +233,9 @@ def build_context(question: str) -> str:
 
     try:
         if str(week).isdigit():
+            t_tx = time.time()
             txs = fetch_transactions(int(week))
+            log.info(f"fetch_transactions took {time.time() - t_tx:.3f}s")
             tx_lines = []
             for tx in txs[:5]:
                 ttype = tx.get("type", "unknown")
@@ -219,6 +253,7 @@ def build_context(question: str) -> str:
     stale_note = "  ⚠️ Preseason projections — weight recent usage over these after week 4.\n" if (isinstance(week, int) and week >= 4) else ""
     ctx_parts.append(f"## Notes\n{stale_note}")
 
+    log.info(f"Total build_context took {time.time() - t_start:.3f}s")
     return "\n\n".join(ctx_parts)
 
 # ---------------------------------------------------------------------------
@@ -257,18 +292,22 @@ def ask_gemini(question: str, context: str) -> str:
         f"Live league data context:\n<league_data>\n{context}\n</league_data>\n\n"
         f"Answer this question as the GM:\n<user_question>\n{question}\n</user_question>"
     )
-    models_to_try = ["gemini-3.7-flash", "gemini-3.5-flash-lite"]
+    # The user updated settings to use Gemini 3.1 Pro (High)
+    models_to_try = ["gemini-3.1-pro-preview", "gemini-3.7-flash", "gemini-3.5-flash-lite"]
 
     last_error = None
     for model_name in models_to_try:
         for attempt in range(2):
             try:
+                log.info(f"Asking Gemini with model {model_name} (Attempt {attempt+1})...")
+                t_llm = time.time()
                 interaction = client.interactions.create(
                     model=model_name,
                     input=prompt,
                     system_instruction=SYSTEM_PROMPT,
                     store=False,
                 )
+                log.info(f"Gemini {model_name} responded in {time.time() - t_llm:.3f}s")
                 if interaction.output_text:
                     return interaction.output_text
             except Exception as e:

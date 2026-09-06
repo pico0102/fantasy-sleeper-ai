@@ -87,7 +87,13 @@ def get_waiver_recommendations(
         
         # Check single player endpoint if pos is missing
         try:
-            pinfo = _get(f"{SLEEPER_BASE}/players/nfl/{pid}")
+            # Only do this if player_id_resolver wasn't provided or pos is still UNKNOWN
+            # To avoid N+1, we will try to use the bulk players fetch if possible
+            # We import get_all_players from app.main locally to avoid circular imports if needed
+            from app.main import get_all_players
+            all_players = get_all_players()
+            
+            pinfo = all_players.get(pid)
             if pinfo and isinstance(pinfo, dict):
                 first = pinfo.get("first_name", "")
                 last = pinfo.get("last_name", "")
