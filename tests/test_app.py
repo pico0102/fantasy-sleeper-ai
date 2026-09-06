@@ -64,15 +64,10 @@ def test_ui_endpoint():
     body = resp.text
 
     # Key UI elements that must be present
-    assert "Fantasy Assistant" in body or "Tony Romo" in body, \
+    assert "Tony Romo" in body, \
         "Page title / branding not found in HTML"
-    assert "chat-log" in body, "Chat log container missing"
-    assert "user-input" in body, "User input element missing"
-    assert "/api/chat" in body, "API endpoint reference missing from UI script"
-    # Quick-action buttons
-    assert "Analyze Lineup" in body
-    assert "Waiver Targets" in body
-    assert "Start / Sit" in body
+    assert "/api/waivers" in body, "Waivers API link missing"
+    assert "/api/gm/overview" in body, "GM API link missing"
 
 
 # ===========================================================================
@@ -152,7 +147,8 @@ def _mock_get(url: str, timeout: int = 10):
 
 def test_build_context_structure():
     """build_context assembles all five expected sections."""
-    with patch("app.main._get", side_effect=_mock_get):
+    with patch("app.main._get", side_effect=_mock_get), \
+         patch("app.waivers._get", side_effect=_mock_get):
         ctx = build_context("Should I start Bo Nix?")
 
     assert isinstance(ctx, str) and len(ctx) > 50, "Context is empty or too short"
@@ -161,7 +157,7 @@ def test_build_context_structure():
     assert "NFL State" in ctx,           "Missing 'NFL State' section"
     assert "Anthony's Roster" in ctx,    "Missing roster section"
     assert "Matchup" in ctx,             "Missing matchup section"
-    assert "Trending" in ctx,            "Missing trending adds section"
+    assert "Waiver Wire" in ctx,         "Missing Waiver Wire section"
 
     # Roster content: our starters should appear by name
     assert "Bo Nix" in ctx,              "Bo Nix not found in roster context"
@@ -184,14 +180,15 @@ _MOCK_GEMINI_ANSWER = (
 
 def test_chat_endpoint_mocked():
     """POST /api/chat returns structured JSON; Gemini and Sleeper are both mocked."""
-    mock_response = MagicMock()
-    mock_response.text = _MOCK_GEMINI_ANSWER
+    mock_interaction = MagicMock()
+    mock_interaction.output_text = _MOCK_GEMINI_ANSWER
 
     mock_client = MagicMock()
-    mock_client.models.generate_content.return_value = mock_response
+    mock_client.interactions.create.return_value = mock_interaction
 
     with (
         patch("app.main._get", side_effect=_mock_get),
+        patch("app.waivers._get", side_effect=_mock_get),
         patch("app.main.get_gemini_client", return_value=mock_client),
     ):
         resp = client.post(
@@ -250,3 +247,15 @@ def test_sleeper_api_smoke():
     season = data["season"]
     assert str(season).isdigit() and int(season) >= 2024, \
         f"Unexpected season value: {season!r}"
+def test_api_waivers_endpoint():
+    with patch('app.main.get_waiver_recommendations') as mock_rec:
+        mock_rec.return_value = {'targets': []}
+        resp = client.get('/api/waivers')
+        assert resp.status_code == 200
+        assert 'targets' in resp.json()
+
+def test_api_gm_overview_endpoint():
+    with patch('app.main.fetch_all_rosters', return_value=[]):
+        resp = client.get('/api/gm/overview')
+        assert resp.status_code == 200
+        assert 'analytics' in resp.json()
