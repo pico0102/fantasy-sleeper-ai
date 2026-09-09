@@ -399,6 +399,7 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     query: str
+    league_context: str = "egg"
 
 class ChatResponse(BaseModel):
     answer: str
@@ -457,12 +458,19 @@ async def chat(req: ChatRequest):
         raise HTTPException(status_code=400, detail="query must not be empty")
 
     start_t = time.time()
-    context = build_context(req.query)
-    answer  = ask_gemini(req.query, context)
+    
+    if req.league_context == "survivor":
+        from app.survivor_engine import ask_survivor_gemini
+        answer = ask_survivor_gemini(req.query, GEMINI_API_KEY)
+        context_summary = "Fat Crew Survivor Pool data loaded... 🏈"
+    else:
+        context = build_context(req.query)
+        answer  = ask_gemini(req.query, context)
+        context_summary = context[:300].replace("\n", " ") + "…"
+
     latency = int((time.time() - start_t) * 1000)
 
-    summary = context[:300].replace("\n", " ") + "…"
-    return ChatResponse(answer=answer, context_summary=summary, latency_ms=latency)
+    return ChatResponse(answer=answer, context_summary=context_summary, latency_ms=latency)
 
 @app.get("/", response_class=HTMLResponse, tags=["UI"])
 async def index():
