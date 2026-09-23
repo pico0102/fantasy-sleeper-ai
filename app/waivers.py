@@ -58,6 +58,7 @@ def get_waiver_recommendations(
     all_rostered_ids: Set[str] = set()
     my_roster_players: List[str] = []
     my_starters: List[str] = []
+    my_reserve: List[str] = []
 
     for r in rosters:
         rid = r.get("roster_id")
@@ -66,6 +67,7 @@ def get_waiver_recommendations(
         if rid == my_roster_id:
             my_roster_players = plist
             my_starters = r.get("starters") or []
+            my_reserve = r.get("reserve") or []
 
     # ── 2. Compute dynamic positional needs ─────────────────────────────
     # Instead of hardcoded "#11 WR", use actual rank data
@@ -189,7 +191,8 @@ def get_waiver_recommendations(
         log.warning(f"Handcuff scan failed: {e}")
 
     # ── 5. Identify recommended drop candidate ──────────────────────────
-    bench_pids = [p for p in my_roster_players if p not in my_starters]
+    # Exclude active starters AND players currently in the IR reserve slots
+    bench_pids = [p for p in my_roster_players if p not in my_starters and p not in my_reserve]
     recommended_drop = None
 
     try:
@@ -225,11 +228,10 @@ def get_waiver_recommendations(
                 sort_value = proj_pts
                 reason_prefix = f"Lowest projected value on bench (preseason)"
 
-            # IR-stashed players are always the top drop candidate
-            if inj in ("IR", "Out", "PUP"):
-                sort_value = -1000  # Force to top of drop list
-                reason_prefix = f"Currently {inj}"
-
+            # If a player is injured but NOT in an IR slot, we still shouldn't automatically drop them
+            # if they are elite (e.g. A.J. Brown). Their projected or actual points are usually high enough
+            # to protect them naturally, so we don't need to force a drop value here.
+            
             valid_drops.append((pid, dname, sort_value, reason_prefix))
 
         if valid_drops:

@@ -48,11 +48,11 @@ def test_waiver_drop_uses_actual_ppg():
     assert drop["player_id"] == "2"
     assert "actual PPG" in drop["reason"]
 
-def test_waiver_drop_ir_player_priority():
-    rosters = [{"roster_id": 4, "players": ["1", "2", "3"], "starters": ["1"]}]
+def test_waiver_reserve_players_excluded():
+    rosters = [{"roster_id": 4, "players": ["1", "2", "3"], "starters": ["1"], "reserve": ["2"]}]
     all_players = {
-        "2": {"position": "WR"},
-        "3": {"position": "RB"}
+        "2": {"position": "WR", "pts": 500},  # Injured but good
+        "3": {"position": "RB", "pts": 5}     # Healthy but bad
     }
     injury_map = {"2": "IR"}
     res = get_waiver_recommendations(
@@ -60,7 +60,8 @@ def test_waiver_drop_ir_player_priority():
         rosters=rosters, all_players=all_players, injury_map=injury_map
     )
     drop = res["recommended_drop"]
-    assert drop["player_id"] == "2"
+    # Player 2 is in reserve, so they shouldn't be dropped. Player 3 should be dropped.
+    assert drop["player_id"] == "3"
 
 def test_waiver_dynamic_wr_need():
     all_players = {"100": {"position": "WR"}}
