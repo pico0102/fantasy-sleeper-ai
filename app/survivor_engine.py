@@ -212,7 +212,7 @@ async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: 
         f"Live Survivor Data:\n<data>\n{context}\n</data>\n\n"
         f"Answer this request:\n<user_question>\n{question}\n</user_question>"
     )
-    models = ["gemini-3.7-flash", "gemini-3.5-flash-lite"]
+    models = ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
     last_error = None
     url = "https://generativelanguage.googleapis.com/v1beta/interactions"
     
@@ -228,7 +228,7 @@ async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: 
                         "system_instruction": SURVIVOR_PROMPT,
                         "store": False
                     },
-                    timeout=15.0
+                    timeout=30.0
                 )
                 
                 if resp.status_code == 429:
@@ -248,7 +248,7 @@ async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: 
                 else:
                     return f"DEBUG: {json.dumps(data)}"
             except Exception as e:
-                last_error = e
+                last_error = f"{type(e).__name__}: {str(e)}"
             
     return f"Survivor engine error: {last_error}"
 

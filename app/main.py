@@ -753,7 +753,7 @@ async def ask_gemini(question: str, context: str) -> str:
         f"Live league data context:\n<league_data>\n{context}\n</league_data>\n\n"
         f"Answer this question as the GM:\n<user_question>\n{question}\n</user_question>"
     )
-    models_to_try = ["gemini-3.7-flash", "gemini-3.5-flash-lite"]
+    models_to_try = ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
 
     last_error = None
     url = "https://generativelanguage.googleapis.com/v1beta/interactions"
@@ -773,7 +773,7 @@ async def ask_gemini(question: str, context: str) -> str:
                         "system_instruction": SYSTEM_PROMPT,
                         "store": False
                     },
-                    timeout=15.0
+                    timeout=30.0
                 )
                 
                 if resp.status_code == 429:
@@ -799,8 +799,8 @@ async def ask_gemini(question: str, context: str) -> str:
                 last_error = f"Gemini {model_name} timed out"
                 log.warning(last_error)
             except Exception as e:
-                last_error = e
-                log.warning(f"Request with {model_name} failed: {e}")
+                last_error = f"{type(e).__name__}: {str(e)}"
+                log.warning(f"Request with {model_name} failed: {last_error}")
 
     return f"⚠️ Analysis engine temporarily unavailable. All models overloaded or timed out. (Last error: {last_error})"
 
