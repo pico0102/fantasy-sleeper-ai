@@ -212,7 +212,7 @@ async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: 
         f"Live Survivor Data:\n<data>\n{context}\n</data>\n\n"
         f"Answer this request:\n<user_question>\n{question}\n</user_question>"
     )
-    models = ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
+    models = ["gemini-3.5-flash-lite"]
     last_error = None
     url = "https://generativelanguage.googleapis.com/v1beta/interactions"
     
@@ -237,6 +237,12 @@ async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: 
                     
                 resp.raise_for_status()
                 data = resp.json()
+                if "steps" in data:
+                    for step in data["steps"]:
+                        if step.get("type") == "model_output" and "content" in step:
+                            for content in step["content"]:
+                                if content.get("type") == "text" and "text" in content:
+                                    return content["text"]
                 if "outputText" in data:
                     return data["outputText"]
                 elif "output_text" in data:

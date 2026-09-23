@@ -753,7 +753,7 @@ async def ask_gemini(question: str, context: str) -> str:
         f"Live league data context:\n<league_data>\n{context}\n</league_data>\n\n"
         f"Answer this question as the GM:\n<user_question>\n{question}\n</user_question>"
     )
-    models_to_try = ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
+    models_to_try = ["gemini-3.5-flash-lite"]
 
     last_error = None
     url = "https://generativelanguage.googleapis.com/v1beta/interactions"
@@ -785,6 +785,13 @@ async def ask_gemini(question: str, context: str) -> str:
                 data = resp.json()
                 
                 log.info(f"Gemini {model_name} responded in {time.time() - t_llm:.3f}s")
+                if "steps" in data:
+                    for step in data["steps"]:
+                        if step.get("type") == "model_output" and "content" in step:
+                            for content in step["content"]:
+                                if content.get("type") == "text" and "text" in content:
+                                    return content["text"]
+                
                 if "outputText" in data:
                     return data["outputText"]
                 elif "output_text" in data:
