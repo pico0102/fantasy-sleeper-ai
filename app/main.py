@@ -785,8 +785,16 @@ async def ask_gemini(question: str, context: str) -> str:
                 data = resp.json()
                 
                 log.info(f"Gemini {model_name} responded in {time.time() - t_llm:.3f}s")
-                if data.get("output_text"):
+                if "outputText" in data:
+                    return data["outputText"]
+                elif "output_text" in data:
                     return data["output_text"]
+                elif "text" in data:
+                    return data["text"]
+                elif "interaction" in data and "outputText" in data["interaction"]:
+                    return data["interaction"]["outputText"]
+                else:
+                    return f"DEBUG: {json.dumps(data)}"
             except asyncio.TimeoutError:
                 last_error = f"Gemini {model_name} timed out"
                 log.warning(last_error)

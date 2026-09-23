@@ -237,8 +237,16 @@ async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: 
                     
                 resp.raise_for_status()
                 data = resp.json()
-                if data.get("output_text"):
+                if "outputText" in data:
+                    return data["outputText"]
+                elif "output_text" in data:
                     return data["output_text"]
+                elif "text" in data:
+                    return data["text"]
+                elif "interaction" in data and "outputText" in data["interaction"]:
+                    return data["interaction"]["outputText"]
+                else:
+                    return f"DEBUG: {json.dumps(data)}"
             except Exception as e:
                 last_error = e
             
