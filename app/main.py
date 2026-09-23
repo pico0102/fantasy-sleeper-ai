@@ -907,6 +907,50 @@ async def api_gm_overview():
         log.error("GM overview error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate GM overview")
 
+from fastapi.responses import StreamingResponse
+
+@app.post("/api/chat_stream", tags=["Chat"])
+async def chat_stream(req: ChatRequest):
+    if not req.query.strip():
+        raise HTTPException(status_code=400, detail="query must not be empty")
+
+    async def event_generator():
+        start_t = time.time()
+        
+        try:
+            if req.league_context == "survivor":
+                yield f"data: {json.dumps({'status': 'Syncing survivor pool state...'})}\n\n"
+                from app.survivor_engine import fetch_survivor_context, ask_survivor_gemini_direct
+                context, odds_data, current_week = await fetch_survivor_context()
+                
+                yield f"data: {json.dumps({'status': 'Consulting the AI GM...'})}\n\n"
+                answer = await ask_survivor_gemini_direct(GEMINI_API_KEY, context, custom_prompt=req.query)
+                data_sources = {"survivor_odds": odds_data.get("data_source")}
+                context_summary = f"Fat Crew Survivor Pool — Week {current_week} data loaded... 🏈"
+            else:
+                yield f"data: {json.dumps({'status': 'Fetching live league data...'})}\n\n"
+                context, data_sources = await build_context(req.query)
+                
+                yield f"data: {json.dumps({'status': 'Consulting the AI GM...'})}\n\n"
+                answer = await ask_gemini(req.query, context)
+                context_summary = context[:300].replace("\n", " ") + "…"
+
+            latency = int((time.time() - start_t) * 1000)
+
+            final_resp = {
+                "answer": answer,
+                "context_summary": context_summary,
+                "latency_ms": latency,
+                "data_sources": data_sources,
+            }
+            yield f"data: {json.dumps(final_resp)}\n\n"
+
+        except Exception as e:
+            log.error(f"Error in chat_stream: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 @app.post("/api/chat", response_model=ChatResponse, tags=["Chat"])
 async def chat(req: ChatRequest):
     if not req.query.strip():

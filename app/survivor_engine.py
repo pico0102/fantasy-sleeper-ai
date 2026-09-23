@@ -188,7 +188,7 @@ async def get_vegas_odds() -> dict:
         
     return {"games": games, "data_source": data_source}
 
-async def build_survivor_recommendation(api_key: str, custom_prompt: str = None) -> dict:
+async def fetch_survivor_context():
     state = await get_survivor_state(SLEEPER_SURVIVOR_LEAGUE_ID)
     current_week = state.get("current_week", 1)
     
@@ -204,23 +204,21 @@ async def build_survivor_recommendation(api_key: str, custom_prompt: str = None)
         f"Odds/Matchups: {json.dumps(odds_data.get('games'), indent=2)}\n"
         f"Previous Picks in League: {json.dumps(previous_picks, indent=2)}\n"
     )
-    
+    return context, odds_data, current_week
+
+async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: str = None) -> str:
     client = genai.Client(
         api_key=api_key,
         http_options={"retry_options": {"attempts": 1}}
     )
-    
     question = custom_prompt if custom_prompt else "Please provide your survivor recommendation for this week."
-    
     prompt = (
         f"Live Survivor Data:\n<data>\n{context}\n</data>\n\n"
         f"Answer this request:\n<user_question>\n{question}\n</user_question>"
     )
-    
     models = ["gemini-3.7-flash", "gemini-3.5-flash-lite"]
     last_error = None
     output_text = ""
-    
     for model_name in models:
         try:
             loop = asyncio.get_event_loop()
@@ -241,8 +239,12 @@ async def build_survivor_recommendation(api_key: str, custom_prompt: str = None)
             await asyncio.sleep(1.0)
             
     if not output_text:
-        output_text = f"Survivor engine error: {last_error}"
-        
+        return f"Survivor engine error: {last_error}"
+    return output_text
+
+async def build_survivor_recommendation(api_key: str, custom_prompt: str = None) -> dict:
+    context, odds_data, current_week = await fetch_survivor_context()
+    output_text = await ask_survivor_gemini_direct(api_key, context, custom_prompt)
     return {
         "recommendation": output_text,
         "data_sources": {"survivor_odds": odds_data.get("data_source")},
