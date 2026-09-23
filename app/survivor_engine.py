@@ -207,10 +207,6 @@ async def fetch_survivor_context():
     return context, odds_data, current_week
 
 async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: str = None) -> str:
-    client = genai.Client(
-        api_key=api_key,
-        http_options={"retry_options": {"attempts": 1}}
-    )
     question = custom_prompt if custom_prompt else "Please provide your survivor recommendation for this week."
     prompt = (
         f"Live Survivor Data:\n<data>\n{context}\n</data>\n\n"
@@ -218,29 +214,35 @@ async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: 
     )
     models = ["gemini-3.7-flash", "gemini-3.5-flash-lite"]
     last_error = None
-    output_text = ""
-    for model_name in models:
-        try:
-            loop = asyncio.get_event_loop()
-            interaction = await loop.run_in_executor(
-                None,
-                lambda: client.interactions.create(
-                    model=model_name,
-                    input=prompt,
-                    system_instruction=SURVIVOR_PROMPT,
-                    store=False,
+    url = "https://generativelanguage.googleapis.com/v1beta/interactions"
+    
+    async with httpx.AsyncClient() as client:
+        for model_name in models:
+            try:
+                resp = await client.post(
+                    url,
+                    headers={"x-goog-api-key": api_key},
+                    json={
+                        "model": model_name,
+                        "input": prompt,
+                        "system_instruction": SURVIVOR_PROMPT,
+                        "store": False
+                    },
+                    timeout=15.0
                 )
-            )
-            if interaction.output_text:
-                output_text = interaction.output_text
-                break
-        except Exception as e:
-            last_error = e
-            await asyncio.sleep(1.0)
+                
+                if resp.status_code == 429:
+                    last_error = f"429 Too Many Requests for {model_name}"
+                    continue
+                    
+                resp.raise_for_status()
+                data = resp.json()
+                if data.get("output_text"):
+                    return data["output_text"]
+            except Exception as e:
+                last_error = e
             
-    if not output_text:
-        return f"Survivor engine error: {last_error}"
-    return output_text
+    return f"Survivor engine error: {last_error}"
 
 async def build_survivor_recommendation(api_key: str, custom_prompt: str = None) -> dict:
     context, odds_data, current_week = await fetch_survivor_context()

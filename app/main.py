@@ -748,8 +748,7 @@ SYSTEM_PROMPT = textwrap.dedent("""\
 
 
 async def ask_gemini(question: str, context: str) -> str:
-    """Call Gemini with timeout protection."""
-    client = get_gemini_client()
+    """Call Gemini directly via HTTP to bypass SDK retry locking."""
     prompt = (
         f"Live league data context:\n<league_data>\n{context}\n</league_data>\n\n"
         f"Answer this question as the GM:\n<user_question>\n{question}\n</user_question>"
@@ -757,35 +756,43 @@ async def ask_gemini(question: str, context: str) -> str:
     models_to_try = ["gemini-3.7-flash", "gemini-3.5-flash-lite"]
 
     last_error = None
-    for model_name in models_to_try:
-        try:
-            log.info(f"Asking Gemini with model {model_name}...")
-            t_llm = time.time()
-
-            # Run the synchronous Gemini call in a thread to avoid blocking
-            loop = asyncio.get_event_loop()
-            interaction = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    lambda: client.interactions.create(
-                        model=model_name,
-                        input=prompt,
-                        system_instruction=SYSTEM_PROMPT,
-                        store=False,
-                    )
-                ),
-                timeout=30.0,
-            )
-
-            log.info(f"Gemini {model_name} responded in {time.time() - t_llm:.3f}s")
-            if interaction.output_text:
-                return interaction.output_text
-        except asyncio.TimeoutError:
-            last_error = f"Gemini {model_name} timed out after 30 seconds"
-            log.warning(last_error)
-        except Exception as e:
-            last_error = e
-            log.warning(f"Request with {model_name} failed: {e}")
+    url = "https://generativelanguage.googleapis.com/v1beta/interactions"
+    
+    async with httpx.AsyncClient() as client:
+        for model_name in models_to_try:
+            try:
+                log.info(f"Asking Gemini with model {model_name} (direct HTTP)...")
+                t_llm = time.time()
+                
+                resp = await client.post(
+                    url,
+                    headers={"x-goog-api-key": GEMINI_API_KEY},
+                    json={
+                        "model": model_name,
+                        "input": prompt,
+                        "system_instruction": SYSTEM_PROMPT,
+                        "store": False
+                    },
+                    timeout=15.0
+                )
+                
+                if resp.status_code == 429:
+                    last_error = f"429 Too Many Requests for {model_name}"
+                    log.warning(last_error)
+                    continue
+                    
+                resp.raise_for_status()
+                data = resp.json()
+                
+                log.info(f"Gemini {model_name} responded in {time.time() - t_llm:.3f}s")
+                if data.get("output_text"):
+                    return data["output_text"]
+            except asyncio.TimeoutError:
+                last_error = f"Gemini {model_name} timed out"
+                log.warning(last_error)
+            except Exception as e:
+                last_error = e
+                log.warning(f"Request with {model_name} failed: {e}")
 
     return f"⚠️ Analysis engine temporarily unavailable. All models overloaded or timed out. (Last error: {last_error})"
 
