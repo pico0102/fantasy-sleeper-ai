@@ -1,48 +1,93 @@
+import os
+import sys
 import pytest
-from unittest.mock import patch
+
+os.environ.setdefault("GEMINI_API_KEY", "test-mock-key")
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from app.waivers import get_waiver_recommendations
 
-def mock_get(url, *args, **kwargs):
-    if "state/nfl" in url:
-        return {"week": 2, "season": "2026"}
-    if "rosters" in url:
-        return [
-            {"roster_id": 4, "players": ["111", "222", "333"], "starters": ["111", "222"]},
-            {"roster_id": 1, "players": ["999"]}
-        ]
-    if "trending" in url:
-        return [
-            {"player_id": "444", "count": 1000}, # FA WR
-            {"player_id": "999", "count": 2000}, # Rostered
-            {"player_id": "555", "count": 500},  # FA RB
-        ]
-    if "players/nfl/" in url:
-        if "444" in url:
-            return {"first_name": "New", "last_name": "WR", "position": "WR", "team": "XYZ"}
-        if "555" in url:
-            return {"first_name": "New", "last_name": "RB", "position": "RB", "team": "ABC"}
-    return {}
-
-@patch("app.waivers._get", side_effect=mock_get)
-def test_get_waiver_recommendations(mock_api):
-    res = get_waiver_recommendations("123", 4)
-    
+def test_waiver_recommendations_basic():
+    res = get_waiver_recommendations(
+        "league123", 
+        4, 
+        lambda x: x, 
+        nfl_state={"week": 2},
+        trending_adds=[{"player_id": "100", "count": 5000}]
+    )
     assert res["week"] == 2
-    assert res["roster_id"] == 4
-    
-    targets = res["targets"]
-    assert len(targets) == 2
-    
-    # Priority should sort WR before RB
-    assert targets[0]["player_id"] == "444"
-    assert targets[0]["position"] == "WR"
-    assert targets[0]["priority_rank"] == 1
-    
-    assert targets[1]["player_id"] == "555"
-    assert targets[1]["position"] == "RB"
-    assert targets[1]["priority_rank"] == 2
-    
-    drop = res["recommended_drop"]
-    assert drop is not None
-    assert drop["player_id"] == "333" # Bench player
+    assert "targets" in res
 
+def test_waiver_ir_players_filtered():
+    all_players = {
+        "100": {"position": "WR", "injury_status": "IR", "first_name": "Injured", "last_name": "Player"}
+    }
+    trending_adds = [{"player_id": "100", "count": 5000}]
+    res = get_waiver_recommendations(
+        "league", 4, lambda x: x,
+        all_players=all_players,
+        trending_adds=trending_adds
+    )
+    targets = res["targets"]
+    assert len(targets) == 0
+
+def test_waiver_drop_uses_actual_ppg():
+    rosters = [{"roster_id": 4, "players": ["1", "2"], "starters": ["1"]}]
+    all_players = {
+        "1": {"position": "QB"},
+        "2": {"position": "WR"}
+    }
+    actual_points = {
+        "2": {"ppg": 5.5, "games_played": 3}
+    }
+    res = get_waiver_recommendations(
+        "league", 4, lambda x: "Player2" if x=="2" else x,
+        rosters=rosters, all_players=all_players, actual_points=actual_points
+    )
+    drop = res["recommended_drop"]
+    assert drop["player_id"] == "2"
+    assert "actual PPG" in drop["reason"]
+
+def test_waiver_drop_ir_player_priority():
+    rosters = [{"roster_id": 4, "players": ["1", "2", "3"], "starters": ["1"]}]
+    all_players = {
+        "2": {"position": "WR"},
+        "3": {"position": "RB"}
+    }
+    injury_map = {"2": "IR"}
+    res = get_waiver_recommendations(
+        "league", 4, lambda x: x,
+        rosters=rosters, all_players=all_players, injury_map=injury_map
+    )
+    drop = res["recommended_drop"]
+    assert drop["player_id"] == "2"
+
+def test_waiver_dynamic_wr_need():
+    all_players = {"100": {"position": "WR"}}
+    trending_adds = [{"player_id": "100", "count": 5000}]
+    res = get_waiver_recommendations(
+        "league", 4, lambda x: x,
+        all_players=all_players, trending_adds=trending_adds,
+        wr_rank=11, rb_rank=3
+    )
+    targets = res["targets"]
+    assert targets[0]["priority_rank"] == 1
+
+def test_waiver_dynamic_rb_need():
+    all_players = {"100": {"position": "RB"}}
+    trending_adds = [{"player_id": "100", "count": 5000}]
+    res = get_waiver_recommendations(
+        "league", 4, lambda x: x,
+        all_players=all_players, trending_adds=trending_adds,
+        wr_rank=3, rb_rank=11
+    )
+    targets = res["targets"]
+    assert targets[0]["priority_rank"] == 1
+
+def test_waiver_faab_early_season():
+    res = get_waiver_recommendations("league", 4, lambda x: x, nfl_state={"week": 2})
+    assert "Aggressive early" in res["faab_guidance"]["strategy"]
+
+def test_waiver_faab_late_season():
+    res = get_waiver_recommendations("league", 4, lambda x: x, nfl_state={"week": 12})
+    assert "Conservative" in res["faab_guidance"]["strategy"]

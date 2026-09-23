@@ -4,23 +4,22 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
 import logging
+import asyncio
 
 load_dotenv()
 log = logging.getLogger(__name__)
 
 # Config
-SENDER = os.getenv("GMAIL_SENDER", "pico0102@gmail.com")
+SENDER = os.getenv("GMAIL_SENDER", "pico2014@gmail.com")
 PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
 RECIPIENT = "pico0102@gmail.com"
 
-def get_survivor_recommendation() -> str:
-    # In a real run, this would call Gemini. For now we format a mock payload.
-    # We will use the survivor_engine context.
-    from app.survivor_engine import ask_survivor_gemini
+async def get_survivor_recommendation_data() -> dict:
+    from app.survivor_engine import build_survivor_recommendation
     api_key = os.getenv("GEMINI_API_KEY", "")
     
     prompt = "Give me the Tuesday look-ahead for the Survivor pool. Format it neatly with HTML tags (no markdown, just <h2>, <p>, <ul>, <b>). Include a primary pick, alternate, and confidence."
-    return ask_survivor_gemini(prompt, api_key)
+    return await build_survivor_recommendation(api_key, custom_prompt=prompt)
 
 def generate_html_email(body_content: str) -> str:
     return f"""
@@ -76,9 +75,16 @@ def send_email(subject: str, html_body: str):
     except Exception as e:
         log.error(f"Failed to send email: {e}")
 
-if __name__ == "__main__":
+async def main():
     logging.basicConfig(level=logging.INFO)
     log.info("Generating survivor recommendation...")
-    recommendation_html = get_survivor_recommendation()
+    data = await get_survivor_recommendation_data()
+    recommendation_html = data.get("recommendation", "")
+    week = data.get("week", 1)
+    
     full_html = generate_html_email(recommendation_html)
-    send_email("Fat Crew Survivor: AI Picks for the Week", full_html)
+    subject = f"Fat Crew Survivor: Week {week} AI Picks"
+    send_email(subject, full_html)
+
+if __name__ == "__main__":
+    asyncio.run(main())

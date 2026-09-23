@@ -19,4 +19,8 @@ COPY .agents/ ./.agents/
 ENV PORT=8080
 EXPOSE 8080
 
+# NOTE: For production, deploy with --min-instances=1 to avoid cold starts:
+#   gcloud run deploy fantasy-ai-service ... --min-instances=1
+# This keeps one warm instance and eliminates the 5MB player cache cold-start penalty.
+
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
