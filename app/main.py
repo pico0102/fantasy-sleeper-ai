@@ -708,7 +708,10 @@ _gemini_client: genai.Client | None = None
 def get_gemini_client() -> genai.Client:
     global _gemini_client
     if _gemini_client is None:
-        _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        _gemini_client = genai.Client(
+            api_key=GEMINI_API_KEY,
+            http_options={"retry_options": {"attempts": 1}}
+        )
     return _gemini_client
 
 SYSTEM_PROMPT = textwrap.dedent("""\

@@ -205,7 +205,10 @@ async def build_survivor_recommendation(api_key: str, custom_prompt: str = None)
         f"Previous Picks in League: {json.dumps(previous_picks, indent=2)}\n"
     )
     
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options={"retry_options": {"attempts": 1}}
+    )
     
     question = custom_prompt if custom_prompt else "Please provide your survivor recommendation for this week."
     
