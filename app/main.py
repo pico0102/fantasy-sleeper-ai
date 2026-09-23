@@ -918,10 +918,8 @@ async def chat(req: ChatRequest):
     if req.league_context == "survivor":
         from app.survivor_engine import build_survivor_recommendation
         try:
-            result = await build_survivor_recommendation(GEMINI_API_KEY)
-            # Now ask Gemini with the user's specific question + survivor context
-            from app.survivor_engine import ask_survivor_gemini
-            answer = await ask_survivor_gemini(req.query, GEMINI_API_KEY)
+            result = await build_survivor_recommendation(GEMINI_API_KEY, custom_prompt=req.query)
+            answer = result["recommendation"]
             data_sources = result.get("data_sources", {})
             context_summary = f"Fat Crew Survivor Pool — Week {result.get('week', '?')} data loaded... 🏈"
         except Exception as e:

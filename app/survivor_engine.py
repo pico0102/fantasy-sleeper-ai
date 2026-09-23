@@ -223,11 +223,15 @@ async def build_survivor_recommendation(api_key: str, custom_prompt: str = None)
     
     for model_name in models:
         try:
-            interaction = client.interactions.create(
-                model=model_name,
-                input=prompt,
-                system_instruction=SURVIVOR_PROMPT,
-                store=False,
+            loop = asyncio.get_event_loop()
+            interaction = await loop.run_in_executor(
+                None,
+                lambda: client.interactions.create(
+                    model=model_name,
+                    input=prompt,
+                    system_instruction=SURVIVOR_PROMPT,
+                    store=False,
+                )
             )
             if interaction.output_text:
                 output_text = interaction.output_text
@@ -241,10 +245,6 @@ async def build_survivor_recommendation(api_key: str, custom_prompt: str = None)
         
     return {
         "recommendation": output_text,
-        "data_sources": odds_data.get("data_source"),
+        "data_sources": {"survivor_odds": odds_data.get("data_source")},
         "week": current_week
     }
-
-async def ask_survivor_gemini(query: str, api_key: str) -> str:
-    result = await build_survivor_recommendation(api_key, custom_prompt=query)
-    return result["recommendation"]
