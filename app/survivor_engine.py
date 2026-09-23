@@ -228,7 +228,7 @@ async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: 
                         "system_instruction": SURVIVOR_PROMPT,
                         "store": False
                     },
-                    timeout=30.0
+                    timeout=60.0
                 )
                 
                 if resp.status_code == 429:

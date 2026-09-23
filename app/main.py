@@ -773,7 +773,7 @@ async def ask_gemini(question: str, context: str) -> str:
                         "system_instruction": SYSTEM_PROMPT,
                         "store": False
                     },
-                    timeout=30.0
+                    timeout=60.0
                 )
                 
                 if resp.status_code == 429:
