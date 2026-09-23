@@ -758,36 +758,34 @@ async def ask_gemini(question: str, context: str) -> str:
 
     last_error = None
     for model_name in models_to_try:
-        for attempt in range(2):
-            try:
-                log.info(f"Asking Gemini with model {model_name} (Attempt {attempt+1})...")
-                t_llm = time.time()
+        try:
+            log.info(f"Asking Gemini with model {model_name}...")
+            t_llm = time.time()
 
-                # Run the synchronous Gemini call in a thread to avoid blocking
-                loop = asyncio.get_event_loop()
-                interaction = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None,
-                        lambda: client.interactions.create(
-                            model=model_name,
-                            input=prompt,
-                            system_instruction=SYSTEM_PROMPT,
-                            store=False,
-                        )
-                    ),
-                    timeout=30.0,
-                )
+            # Run the synchronous Gemini call in a thread to avoid blocking
+            loop = asyncio.get_event_loop()
+            interaction = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: client.interactions.create(
+                        model=model_name,
+                        input=prompt,
+                        system_instruction=SYSTEM_PROMPT,
+                        store=False,
+                    )
+                ),
+                timeout=30.0,
+            )
 
-                log.info(f"Gemini {model_name} responded in {time.time() - t_llm:.3f}s")
-                if interaction.output_text:
-                    return interaction.output_text
-            except asyncio.TimeoutError:
-                last_error = "Gemini response timed out after 30 seconds"
-                log.warning(f"Gemini {model_name} timed out")
-            except Exception as e:
-                last_error = e
-                log.warning(f"Attempt {attempt + 1} with {model_name} failed: {e}")
-                await asyncio.sleep(1.0)
+            log.info(f"Gemini {model_name} responded in {time.time() - t_llm:.3f}s")
+            if interaction.output_text:
+                return interaction.output_text
+        except asyncio.TimeoutError:
+            last_error = f"Gemini {model_name} timed out after 30 seconds"
+            log.warning(last_error)
+        except Exception as e:
+            last_error = e
+            log.warning(f"Request with {model_name} failed: {e}")
 
     return f"⚠️ Analysis engine temporarily unavailable. All models overloaded or timed out. (Last error: {last_error})"
 
