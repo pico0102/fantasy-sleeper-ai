@@ -172,7 +172,7 @@ async def test_api_health_includes_survivor_odds_component():
 
 @pytest.mark.asyncio
 async def test_missing_odds_key_returns_plain_language_error():
-    with patch("os.getenv", return_value=""):
+    with patch("app.survivor_engine.ODDS_API_KEY", ""):
         res = await generate_survivor_recommendation()
         assert res.is_valid is False
         assert res.status == "error"
@@ -390,14 +390,21 @@ async def test_unified_pick_agreement_between_chat_and_email():
     mock_state = {"current_week": 5, "league_name": "Fat Crew Survivor"}
     mock_roster_data = (["SEA", "LAC", "BUF", "BAL"], {"total_rosters": 63})
 
+    mock_espn = [
+        {"name": "Arizona at LA Rams", "short_name": "ARI @ LAR", "teams": ["LAR", "ARI"], "state": "pre"},
+        {"name": "Washington at San Francisco", "short_name": "WAS @ SF", "teams": ["SF", "WAS"], "state": "pre"},
+    ]
+
     with patch("app.survivor_engine.get_survivor_state", new_callable=AsyncMock) as m_state, \
          patch("app.survivor_engine.get_survivor_pool_rosters", new_callable=AsyncMock) as m_roster, \
          patch("app.survivor_engine.get_vegas_odds", new_callable=AsyncMock) as m_odds, \
+         patch("app.survivor_engine.fetch_espn_scoreboard", new_callable=AsyncMock) as m_espn, \
          patch("app.survivor_engine.ask_gemini", new_callable=AsyncMock) as m_llm:
 
         m_state.return_value = mock_state
         m_roster.return_value = mock_roster_data
         m_odds.return_value = mock_odds
+        m_espn.return_value = mock_espn
         m_llm.return_value = "Detailed strategic analysis."
 
         # 1. Chatbot path
@@ -418,3 +425,68 @@ async def test_unified_pick_agreement_between_chat_and_email():
         # Confirm validation passes for email
         valid, _ = validate_pick_for_email(email_result)
         assert valid is True
+
+
+@pytest.mark.asyncio
+async def test_deterministic_refusal_consistency():
+    """Confirms that when ODDS_API_KEY is unset, the refusal is 100% deterministic and never bypassed."""
+    with patch("app.survivor_engine.ODDS_API_KEY", ""):
+        with patch("app.survivor_engine.ask_gemini", new_callable=AsyncMock) as m_llm:
+            for i in range(5):
+                res = await generate_survivor_recommendation(query=f"Pick request #{i}")
+                assert res.is_valid is False
+                assert res.status == "error"
+                assert res.primary_team == ""
+                assert res.primary_prob == 0.0
+                assert res.recommendation_text == ODDS_KEY_MISSING_MESSAGE
+            # Verify LLM was NEVER called
+            assert m_llm.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_future_week_and_completed_matchups_strictly_discarded():
+    """
+    Guarantees that games from future weeks (e.g. Week 6 Rams vs Arizona, 49ers vs Washington)
+    and completed games (e.g. Thursday night TB @ DAL) are never recommended for Week 5.
+    """
+    raw_odds = [
+        # WEEK 6 GAMES (Should be discarded)
+        {"home": "Los Angeles Rams", "away": "Arizona Cardinals", "start": "2026-10-18T20:05:00Z", "spread_home": -10.5, "implied_prob_home": 0.86, "moneyline_home": -600},
+        {"home": "San Francisco 49ers", "away": "Washington Commanders", "start": "2026-10-20T00:15:00Z", "spread_home": -7.5, "implied_prob_home": 0.81, "moneyline_home": -400},
+        # WEEK 5 COMPLETED GAME (Should be discarded)
+        {"home": "Dallas Cowboys", "away": "Tampa Bay Buccaneers", "start": "2026-10-08T20:15:00Z", "spread_home": -3.0, "implied_prob_home": 0.60, "moneyline_home": -150},
+        # REAL WEEK 5 UPCOMING GAMES (Eligible)
+        {"home": "Jacksonville Jaguars", "away": "Philadelphia Eagles", "start": "2026-10-11T13:30:00Z", "spread_home": -7.5, "implied_prob_home": 0.798, "moneyline_home": -395},
+        {"home": "Tennessee Titans", "away": "Houston Texans", "start": "2026-10-11T17:00:00Z", "spread_home": 7.0, "implied_prob_away": 0.789, "moneyline_away": -375},
+    ]
+
+    mock_espn = [
+        {"name": "TB at DAL", "short_name": "TB @ DAL", "teams": ["DAL", "TB"], "state": "post"},  # completed
+        {"name": "PHI at JAX", "short_name": "PHI @ JAX", "teams": ["JAX", "PHI"], "state": "pre"},
+        {"name": "HOU at TEN", "short_name": "HOU @ TEN", "teams": ["TEN", "HOU"], "state": "pre"},
+    ]
+
+    with patch("app.survivor_engine.get_survivor_state", new_callable=AsyncMock) as m_state, \
+         patch("app.survivor_engine.get_survivor_pool_rosters", new_callable=AsyncMock) as m_roster, \
+         patch("app.survivor_engine.get_vegas_odds", new_callable=AsyncMock) as m_odds, \
+         patch("app.survivor_engine.fetch_espn_scoreboard", new_callable=AsyncMock) as m_espn, \
+         patch("app.survivor_engine.ask_gemini", new_callable=AsyncMock) as m_llm:
+
+        m_state.return_value = {"current_week": 5, "league_name": "Fat Crew Survivor"}
+        m_roster.return_value = (["SEA", "LAC", "BUF", "BAL"], {"total_rosters": 63})
+        m_odds.return_value = {"games": raw_odds, "data_source": {"status": "ok"}}
+        m_espn.return_value = mock_espn
+        m_llm.return_value = "Detailed breakdown."
+
+        result = await generate_survivor_recommendation()
+        assert result.is_valid is True
+        # Must NOT pick Week 6 Rams or 49ers
+        assert result.primary_team != "Los Angeles Rams"
+        assert result.primary_team != "San Francisco 49ers"
+        assert result.primary_opponent != "Arizona Cardinals"
+        assert result.primary_opponent != "Washington Commanders"
+        # Must pick real Week 5 favorite
+        assert result.primary_team == "Jacksonville Jaguars"
+        assert result.primary_opponent == "Philadelphia Eagles"
+        assert result.primary_prob == 0.798
+        assert result.alternate_team == "Houston Texans"

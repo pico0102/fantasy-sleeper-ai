@@ -27,6 +27,7 @@ from app.config import (
     SLEEPER_USER_ID,
 )
 from app.llm import LLMError, ask_gemini
+from app.sleeper import fetch_espn_scoreboard
 
 log = logging.getLogger(__name__)
 
@@ -183,9 +184,20 @@ class SurvivorPickResult:
 # Health Probe
 # ---------------------------------------------------------------------------
 
+def get_effective_odds_api_key() -> str:
+    """Returns the effective ODDS_API_KEY, respecting environment patches in tests."""
+    mod = sys.modules.get("app.survivor_engine")
+    mod_key = getattr(mod, "ODDS_API_KEY", None)
+    env_key = os.getenv("ODDS_API_KEY", None)
+    if mod_key == "" or env_key == "":
+        return ""
+    val = mod_key if mod_key is not None else (env_key if env_key is not None else ODDS_API_KEY)
+    return str(val).strip()
+
+
 async def probe_survivor_odds_health() -> Dict[str, Any]:
     """Lightweight health check for survivor odds feed."""
-    api_key = os.getenv("ODDS_API_KEY", ODDS_API_KEY).strip()
+    api_key = get_effective_odds_api_key()
     if not api_key or api_key == "your-odds-api-key-here" or api_key == "test-mock-key":
         return {
             "status": "error",
@@ -365,15 +377,8 @@ async def get_vegas_odds(force_refresh: bool = False) -> dict:
     }
     games = []
 
-    # Check key first (supporting module-level monkeypatching in tests)
-    mod = sys.modules.get("app.survivor_engine")
-    api_key = getattr(mod, "ODDS_API_KEY", None)
-    if api_key is None:
-        api_key = os.getenv("ODDS_API_KEY", ODDS_API_KEY)
-    if api_key is not None:
-        api_key = api_key.strip()
-
-    if not api_key or api_key == "your-odds-api-key-here":
+    api_key = get_effective_odds_api_key()
+    if not api_key or api_key == "your-odds-api-key-here" or api_key == "test-mock-key":
         data_source["status"] = "error"
         data_source["error"] = "ODDS_API_KEY not set"
         return {"games": games, "data_source": data_source}
@@ -544,10 +549,9 @@ async def generate_survivor_recommendation(
     Used by both the chat toggle (/api/chat_stream, /api/chat) and weekly email cron.
     """
     lid = league_id or os.getenv("SLEEPER_SURVIVOR_LEAGUE_ID", SLEEPER_SURVIVOR_LEAGUE_ID)
-    api_key_odds = os.getenv("ODDS_API_KEY", ODDS_API_KEY).strip()
-    api_key_gemini = os.getenv("GEMINI_API_KEY", GEMINI_API_KEY).strip()
 
-    # Pre-check 1: ODDS_API_KEY
+    # Pre-check 1: ODDS_API_KEY (Deterministic Short-Circuit: ZERO LLM calls when key is missing)
+    api_key_odds = get_effective_odds_api_key()
     if not api_key_odds or api_key_odds == "your-odds-api-key-here" or api_key_odds == "test-mock-key":
         return SurvivorPickResult(
             status="error",
@@ -574,22 +578,25 @@ async def generate_survivor_recommendation(
             error="ODDS_API_KEY is not configured",
         )
 
-    # Fetch live pool state, previous picks, and Vegas odds concurrently
-    state_task = asyncio.create_task(get_survivor_state(lid))
-    roster_task = asyncio.create_task(get_survivor_pool_rosters(lid))
-    odds_task = asyncio.create_task(get_vegas_odds())
-
-    state, (previously_picked, pool_meta), odds_data = await asyncio.gather(
-        state_task, roster_task, odds_task
-    )
-
+    # Fetch live state first to get current NFL week
+    state = await get_survivor_state(lid)
     current_week = state.get("current_week", 1)
     league_name = state.get("league_name", "Fat Crew Survivor")
-    data_source = odds_data.get("data_source", {})
-    games = odds_data.get("games", [])
 
-    # Pre-check 2: Verify odds data loaded successfully
-    if data_source.get("status") != "ok" or not games:
+    # Fetch previous picks, Vegas odds, and the official ESPN scoreboard concurrently
+    roster_task = asyncio.create_task(get_survivor_pool_rosters(lid))
+    odds_task = asyncio.create_task(get_vegas_odds())
+    scoreboard_task = asyncio.create_task(fetch_espn_scoreboard(current_week))
+
+    (previously_picked, pool_meta), odds_data, espn_scoreboard = await asyncio.gather(
+        roster_task, odds_task, scoreboard_task
+    )
+
+    data_source = odds_data.get("data_source", {})
+    raw_games = odds_data.get("games", [])
+
+    # Pre-check 2: Verify odds data loaded successfully (ZERO LLM calls if odds unavailable)
+    if data_source.get("status") != "ok" or not raw_games:
         err_msg = data_source.get("error") or "No live NFL games found in odds feed"
         return SurvivorPickResult(
             status="error",
@@ -616,8 +623,74 @@ async def generate_survivor_recommendation(
             error=err_msg,
         )
 
-    # Evaluate and rank candidates
-    all_candidates = evaluate_survivor_candidates(games, previously_picked)
+    # -----------------------------------------------------------------------
+    # Schedule Validation: Strictly match against current week's NFL schedule
+    # Discards games from future weeks (Week 6) and games already played (e.g. Thursday night)
+    # Teams on BYE (e.g. Kansas City in Week 5) have no matchup and are excluded.
+    # -----------------------------------------------------------------------
+    espn_week_pairs = set()
+    completed_pairs = set()
+    for eg in (espn_scoreboard or []):
+        t = eg.get("teams", [])
+        if len(t) == 2:
+            pair = frozenset([t[0].upper(), t[1].upper()])
+            if eg.get("state") in ("post", "in"):
+                completed_pairs.add(pair)
+            else:
+                espn_week_pairs.add(pair)
+
+    current_week_games = []
+    for g in raw_games:
+        h_abbrev = get_team_abbreviation(g["home"])
+        a_abbrev = get_team_abbreviation(g["away"])
+        pair = frozenset([h_abbrev, a_abbrev])
+
+        # If ESPN scoreboard is loaded, strictly verify game belongs to current week
+        if espn_week_pairs:
+            if pair in espn_week_pairs:
+                current_week_games.append(g)
+        elif pair not in completed_pairs:
+            # Fallback date filter: commence_time must be within the next 6.5 days
+            start_str = g.get("start")
+            if start_str:
+                try:
+                    start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+                    diff_days = (start_dt - datetime.now(timezone.utc)).total_seconds() / 86400
+                    if 0 <= diff_days <= 6.5:
+                        current_week_games.append(g)
+                except Exception:
+                    current_week_games.append(g)
+            else:
+                current_week_games.append(g)
+
+    if not current_week_games:
+        return SurvivorPickResult(
+            status="error",
+            is_valid=False,
+            week=current_week,
+            league_name=league_name,
+            primary_team="",
+            primary_abbrev="",
+            primary_opponent="",
+            primary_prob=0.0,
+            primary_spread=None,
+            primary_ml=None,
+            alternate_team="",
+            alternate_abbrev="",
+            alternate_opponent="",
+            alternate_prob=0.0,
+            alternate_spread=None,
+            alternate_ml=None,
+            previously_picked=previously_picked,
+            candidates=[],
+            recommendation_text=f"⚠️ **No Active Games Found**: No upcoming unplayed NFL games found for Week {current_week}.",
+            recommendation_html=f"<p>No active games found for Week {current_week}.</p>",
+            data_sources={"survivor_odds": data_source},
+            error=f"No active games found for Week {current_week}",
+        )
+
+    # Evaluate and rank candidates strictly from validated current week games
+    all_candidates = evaluate_survivor_candidates(current_week_games, previously_picked)
     eligible_candidates = [c for c in all_candidates if c.is_eligible]
 
     if not eligible_candidates:
@@ -784,6 +857,10 @@ async def fetch_survivor_context() -> Tuple[str, dict, int]:
 
 
 async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: Optional[str] = None) -> str:
+    # Deterministic Short-Circuit: If odds are missing or empty, NEVER invoke LLM
+    if "ODDS_API_KEY not set" in context or "ODDS_API_KEY not configured" in context or "Odds/Matchups: []" in context:
+        return ODDS_KEY_MISSING_MESSAGE
+
     question = custom_prompt if custom_prompt else "Please provide your survivor recommendation for this week."
     prompt = (
         f"Live Survivor Data:\n<data>\n{context}\n</data>\n\n"
