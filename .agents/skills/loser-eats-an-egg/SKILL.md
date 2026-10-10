@@ -160,11 +160,12 @@ counts, and target share over anything in these files, and say so when you do.
    population is adding, then `/league/.../transactions/{week}` for what happened in
    *this* league. Cross-reference: a player trending nationally who is still unrostered
    here is the best claim available.
-2. Priority order for this roster: **receiver upside first** — it is the weak spot and
-   the pool is where improvement lives. Then any backup to McCaffrey, Hampton, Love, or
-   Irving, since four backs start weekly.
-3. Never recommend a second QB or TE unless his starter is out. He has one usable slot
-   for each.
+2. Evaluate every position by **projected marginal value to Anthony's starting lineup**
+   across a multi-week horizon (factoring in byes, injuries, and bench drops).
+   Never default to WR or any single position — if a K or TE is on bye or out,
+   a waiver replacement carries massive marginal points. If a WR genuinely provides
+   the greatest marginal gain over existing flex/starters, explain why.
+3. Factor in actual remaining FAAB ($100 season budget).
 
 ### Trade evaluation
 Evaluate by **change in optimal starting lineup**, never by raw player value. A player

@@ -238,11 +238,14 @@ async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: 
                 resp.raise_for_status()
                 data = resp.json()
                 if "steps" in data:
+                    text_parts = []
                     for step in data["steps"]:
                         if step.get("type") == "model_output" and "content" in step:
                             for content in step["content"]:
-                                if content.get("type") == "text" and "text" in content:
-                                    return content["text"]
+                                if isinstance(content, dict) and content.get("type") == "text" and "text" in content:
+                                    text_parts.append(content["text"])
+                    if text_parts:
+                        return "".join(text_parts)
                 if "outputText" in data:
                     return data["outputText"]
                 elif "output_text" in data:
@@ -252,11 +255,11 @@ async def ask_survivor_gemini_direct(api_key: str, context: str, custom_prompt: 
                 elif "interaction" in data and "outputText" in data["interaction"]:
                     return data["interaction"]["outputText"]
                 else:
-                    return f"DEBUG: {json.dumps(data)}"
+                    last_error = "Unexpected response shape from Gemini"
             except Exception as e:
                 last_error = f"{type(e).__name__}: {str(e)}"
             
-    return f"Survivor engine error: {last_error}"
+    return f"⚠️ Survivor analysis temporarily unavailable: {last_error}"
 
 async def build_survivor_recommendation(api_key: str, custom_prompt: str = None) -> dict:
     context, odds_data, current_week = await fetch_survivor_context()

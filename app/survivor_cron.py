@@ -81,7 +81,11 @@ async def main():
     data = await get_survivor_recommendation_data()
     recommendation_html = data.get("recommendation", "")
     week = data.get("week", 1)
-    
+
+    if not recommendation_html or "⚠️" in recommendation_html or "temporarily unavailable" in recommendation_html:
+        log.error(f"Cannot send email: recommendation generation failed ({recommendation_html})")
+        return
+
     full_html = generate_html_email(recommendation_html)
     subject = f"Fat Crew Survivor: Week {week} AI Picks"
     send_email(subject, full_html)
