@@ -37,9 +37,8 @@ When you make changes to the backend codebase or the frontend (in `Unified Apps/
      --region us-east1 `
      --platform managed `
      --allow-unauthenticated `
-     --set-secrets "GEMINI_API_KEY=gemini-api-key:latest" \
-     --set-env-vars "SLEEPER_LEAGUE_ID=1389359956657967104" \
-     --set-env-vars "SLEEPER_USER_ID=pinec0ne"
+     --set-secrets "GEMINI_API_KEY=gemini-api-key:latest,ODDS_API_KEY=odds-api-key:latest" `
+     --set-env-vars "SLEEPER_LEAGUE_ID=1389359956657967104,SLEEPER_SURVIVOR_LEAGUE_ID=1393775027442167808,SLEEPER_USER_ID=pinec0ne"
    ```
 
 3. **GCP Survivor Email Cron:**

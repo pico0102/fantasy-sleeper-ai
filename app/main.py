@@ -254,6 +254,12 @@ async def api_health():
     if gemini_health.get("status") == "error":
         overall_status = "degraded"
 
+    from app.survivor_engine import probe_survivor_odds_health
+    survivor_odds_health = await probe_survivor_odds_health()
+    components["survivor_odds"] = survivor_odds_health
+    if survivor_odds_health.get("status") == "error":
+        overall_status = "degraded"
+
     status_code = 200 if overall_status in ("ok", "degraded") else 503
     return JSONResponse(
         status_code=status_code,
@@ -279,14 +285,12 @@ async def chat_stream(req: ChatRequest):
         start_t = time.time()
         try:
             if req.league_context == "survivor":
-                yield f"data: {json.dumps({'type': 'status', 'status': 'Syncing survivor pool state...'})}\n\n"
-                from app.survivor_engine import ask_survivor_gemini_direct, fetch_survivor_context
-                context, odds_data, current_week = await fetch_survivor_context()
-
-                yield f"data: {json.dumps({'type': 'status', 'status': 'Consulting the AI GM...'})}\n\n"
-                answer = await ask_survivor_gemini_direct(GEMINI_API_KEY, context, custom_prompt=req.query)
-                data_sources = {"survivor_odds": odds_data.get("data_source")}
-                context_summary = f"Fat Crew Survivor Pool — Week {current_week} data loaded... 🏈"
+                yield f"data: {json.dumps({'type': 'status', 'status': 'Syncing survivor pool and live Vegas odds...'})}\n\n"
+                from app.survivor_engine import generate_survivor_recommendation
+                result = await generate_survivor_recommendation(query=req.query)
+                answer = result.recommendation_text
+                data_sources = result.data_sources
+                context_summary = f"Fat Crew Survivor Pool — Week {result.week} data loaded... 🏈"
             else:
                 yield f"data: {json.dumps({'type': 'status', 'status': 'Syncing live Sleeper league state...'})}\n\n"
                 snapshot = await load_league_snapshot()
@@ -339,12 +343,12 @@ async def chat(req: ChatRequest):
     is_mocked = main_mod and hasattr(main_mod, "ask_gemini") and getattr(main_mod.ask_gemini, "_is_coroutine", None)
 
     if req.league_context == "survivor":
-        from app.survivor_engine import build_survivor_recommendation
+        from app.survivor_engine import generate_survivor_recommendation
         try:
-            result = await build_survivor_recommendation(GEMINI_API_KEY, custom_prompt=req.query)
-            answer = result["recommendation"]
-            data_sources = result.get("data_sources", {})
-            context_summary = f"Fat Crew Survivor Pool — Week {result.get('week', '?')} data loaded... 🏈"
+            result = await generate_survivor_recommendation(query=req.query)
+            answer = result.recommendation_text
+            data_sources = result.data_sources
+            context_summary = f"Fat Crew Survivor Pool — Week {result.week} data loaded... 🏈"
         except Exception as e:
             log.error(f"Survivor engine error: {e}")
             raise HTTPException(status_code=500, detail=str(e))
