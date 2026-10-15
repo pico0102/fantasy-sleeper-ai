@@ -210,6 +210,7 @@ class GeminiReasoner:
             snapshot=snapshot,
             directives=directives,
             has_false_premise=has_false_premise,
+            query=query,
         )
 
         return ChatResponse(

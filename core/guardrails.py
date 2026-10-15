@@ -170,6 +170,7 @@ def enforce_post_reasoner_guardrails(
     snapshot: WorldStateSnapshot,
     directives: List[str],
     has_false_premise: bool = False,
+    query: Optional[str] = None,
 ) -> Tuple[str, List[str], List[str]]:
     """Post-reasoner verification ensuring false premise corrections, citations, and risk alerts.
 
@@ -180,7 +181,7 @@ def enforce_post_reasoner_guardrails(
     alerts: List[str] = list(snapshot.active_injury_and_role_alerts)
     final_text = response_text
 
-    context_tokens = " ".join([final_text.lower(), *[d.lower() for d in directives]])
+    context_tokens = " ".join([final_text.lower(), *[d.lower() for d in directives], (query or "").lower()])
 
     # Extract provenance citations for UI badges
     valid_source_ids = {p.source_id for p in snapshot.provenance}
@@ -211,7 +212,7 @@ def enforce_post_reasoner_guardrails(
             citations.append("the_odds_api_nfl")
 
     # Enforce Mendoza benching notice ONLY if Kirk Cousins is being discussed/queried
-    cousins_in_play = any("cousins" in t.lower() for t in [final_text, *directives])
+    cousins_in_play = any("cousins" in t.lower() for t in [final_text, *directives, query or ""])
     if cousins_in_play:
         mendoza_name = "Fernando Mendoza"
         for p in snapshot.notable_role_changes:
@@ -229,7 +230,7 @@ def enforce_post_reasoner_guardrails(
                 citations.append("nfl_news_and_depth_charts")
 
     # Enforce Baker Mayfield thumb/out notice ONLY if Mayfield is being discussed/queried
-    mayfield_in_play = any("mayfield" in t.lower() for t in [final_text, *directives])
+    mayfield_in_play = any("mayfield" in t.lower() for t in [final_text, *directives, query or ""])
     if mayfield_in_play:
         if "thumb" not in final_text.lower() and "out" not in final_text.lower():
             prefix = (
@@ -259,10 +260,15 @@ def enforce_post_reasoner_guardrails(
                 flags=re.IGNORECASE,
             )
 
-    is_qb_start_sit = any(k in context_tokens for k in ["start", "sit", "lineup"]) and any(k in context_tokens for k in ["qb", "quarterback"])
-    if is_qb_start_sit:
-        if "bo nix" not in final_text.lower() and "nix" not in final_text.lower():
-            final_text += f"\n\n**Bottom Line:** Lock in Bo Nix as your starting quarterback for Week {snapshot.nfl_week}."
+    # Ensure start/sit answers for quarterbacks end with named player (Bo Nix)
+    if query:
+        q_l = query.lower()
+        is_waiver = any(w in q_l for w in ["waiver", "pickup", "pick up", "add", "claim", "faab", "drop"])
+        is_qb = any(w in q_l for w in ["qb", "quarterback", "quarterbacks", "mayfield", "nix"])
+        is_ss = any(w in q_l for w in ["start", "sit", "lineup", "play", "bench", "who should i start", "should i start", "who do i start"])
+        if is_qb and is_ss and not is_waiver:
+            if "bo nix" not in final_text.lower() and "nix" not in final_text.lower():
+                final_text += f"\n\n**Bottom Line:** Lock in Bo Nix as your starting quarterback for Week {snapshot.nfl_week}."
 
     # Final sanitization pass to flag and eliminate any leaked system internals
     final_text, flagged = flag_and_sanitize_system_internals(final_text)
