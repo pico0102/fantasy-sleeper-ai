@@ -490,3 +490,102 @@ async def test_future_week_and_completed_matchups_strictly_discarded():
         assert result.primary_opponent == "Philadelphia Eagles"
         assert result.primary_prob == 0.798
         assert result.alternate_team == "Houston Texans"
+
+
+# ---------------------------------------------------------------------------
+# V2 Unified Survivor Engine & Fail-Closed Gate Tests
+# ---------------------------------------------------------------------------
+from core.config import SURVIVOR_FAIL_CLOSED_TEMPLATE
+from core.provenance import build_provenance_record
+from core.schemas import NFLGameOdds, WorldStateSnapshot
+from core.survivor import (
+    SurvivorEmailDispatcher,
+    SurvivorEngine,
+    assert_no_nfl_team_leaked,
+)
+
+
+def _build_v2_snapshot(odds=None, odds_status="ok") -> WorldStateSnapshot:
+    prov = [
+        build_provenance_record("the_odds_api_nfl", "odds_api", "odds", status=odds_status, record_count=len(odds or []))
+    ]
+    return WorldStateSnapshot(
+        snapshot_id="snap_v2_survivor",
+        created_at_utc="2026-10-14T00:00:00Z",
+        nfl_season="2026",
+        nfl_week=6,
+        current_week_odds=odds or [],
+        provenance=prov,
+    )
+
+
+def test_v2_survivor_deterministic_fail_closed_refusal():
+    # 1. When odds are missing_key, evaluate_week must short circuit pre-LLM
+    snapshot = _build_v2_snapshot(odds=[], odds_status="missing_key")
+    res1 = SurvivorEngine.evaluate_week(snapshot, used_teams=["KC", "BUF"])
+    res2 = SurvivorEngine.evaluate_week(snapshot, used_teams=["KC", "BUF"])
+
+    assert res1.status == "fail_closed_no_odds"
+    assert res1.recommended_team is None
+    expected_refusal = SURVIVOR_FAIL_CLOSED_TEMPLATE.format(status="missing_key")
+    assert res1.reasoning_markdown == expected_refusal
+    # Deterministic byte-for-byte identity
+    assert res1.reasoning_markdown == res2.reasoning_markdown
+
+
+def test_v2_survivor_verified_pick_path():
+    odds = [
+        NFLGameOdds(
+            game_id="g1",
+            nfl_week=6,
+            commence_time_utc="2026-10-18T17:00:00Z",
+            home_team="GB",
+            away_team="DET",
+            favorite_team="DET",
+            underdog_team="GB",
+            spread_points=-7.5,
+            favorite_moneyline=-350,
+            implied_win_prob=0.77,
+        ),
+        NFLGameOdds(
+            game_id="g2",
+            nfl_week=6,
+            commence_time_utc="2026-10-18T17:00:00Z",
+            home_team="KC",
+            away_team="LV",
+            favorite_team="KC",
+            underdog_team="LV",
+            spread_points=-9.0,
+            favorite_moneyline=-450,
+            implied_win_prob=0.81,
+        ),
+    ]
+    snapshot = _build_v2_snapshot(odds=odds, odds_status="ok")
+    # KC already used, so DET should be recommended
+    result = SurvivorEngine.evaluate_week(snapshot, used_teams=["KC"])
+    assert result.status == "verified_pick"
+    assert result.recommended_team == "DET"
+    assert result.opponent_team == "GB"
+    assert result.spread == -7.5
+
+
+def test_v2_survivor_email_dispatcher_safeguard():
+    # Missing odds must abort email sending and pass zero-team-leak assert
+    snapshot = _build_v2_snapshot(odds=[], odds_status="failed")
+    dispatcher = SurvivorEmailDispatcher()
+    email_res = dispatcher.run(snapshot, used_teams=["KC"])
+
+    assert email_res["email_sent"] is False
+    assert email_res["recommended_team"] is None
+    assert email_res["abort_reason"] == "fail_closed_no_odds"
+
+    # Zero-team-leak check
+    assert_no_nfl_team_leaked(email_res["detail"])
+
+    # Regex should catch actual team leaks
+    with pytest.raises(AssertionError):
+        assert_no_nfl_team_leaked("We recommend picking the Detroit Lions this week.")
+
+    with pytest.raises(AssertionError):
+        assert_no_nfl_team_leaked("Safe pick: DET favored by 7.")
+

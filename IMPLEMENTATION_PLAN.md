@@ -277,21 +277,21 @@ Execute Phases 0 through 6 sequentially without pausing for human confirmation. 
   - Commit message: `feat(world-model): assemble unified WorldStateSnapshot with news, odds, and provenance`
 
 ### Phase 4: Analytical Reasoner, Guardrails & Unified Survivor Engine
-- [ ] **4.1 Implement `core/guardrails.py`:**
+- [x] **4.1 Implement `core/guardrails.py`:**
   - Pre-reasoner premise scanner (detecting bye-week, injury, and benching claims in user prompts and attaching explicit ground-truth verification directives).
   - Post-reasoner entity grounding check, medical risk check, and benching/role-risk alert enforcement.
-- [ ] **4.2 Implement `core/reasoner.py`:**
+- [x] **4.2 Implement `core/reasoner.py`:**
   - Configure `google-genai` SDK defaulting to `gemini-3.8-flash`.
   - Embed the verbatim system instructions:
     - *"If structured data is missing, reason from available context and state what is missing; never deflect."*
     - Premise verification, benching/depth-chart priority over static board ranks, and provenance citation rules.
-- [ ] **4.3 Implement `core/survivor.py`:**
+- [x] **4.3 Implement `core/survivor.py`:**
   - Implement `SurvivorEngine.evaluate_week()` as an explicit reasoner path.
   - Enforce the pre-LLM deterministic fail-closed gate returning `SURVIVOR_FAIL_CLOSED_TEMPLATE` whenever `odds_provenance.status != "ok"` or `current_week_odds` is empty.
   - Implement `SurvivorEmailDispatcher` running on the exact same `SurvivorEngine.evaluate_week()` engine with the 32-NFL-team regex safeguard (`assert_no_nfl_team_leaked`) guaranteeing a failed run can never emit a team name.
-- [ ] **4.4 Create `tests/test_survivor.py` and `tests/test_guardrails.py`:**
+- [x] **4.4 Create `tests/test_survivor.py` and `tests/test_guardrails.py`:**
   - Verify deterministic fail-closed refusal identity across repeated runs, verified survivor pick path when odds are present, and the email zero-team-leak safeguard.
-- [ ] **4.5 Verify & Commit Phase 4:**
+- [x] **4.5 Verify & Commit Phase 4:**
   - Run `pytest tests/test_survivor.py tests/test_guardrails.py`.
   - Commit message: `feat(reasoner-survivor): implement Gemini 3.8 Flash reasoner, guardrails, and fail-closed survivor engine`
 
