@@ -310,12 +310,12 @@ Execute Phases 0 through 6 sequentially without pausing for human confirmation. 
   - Commit message: `feat(api-ui): register odds_api in /health and wire unified survivor and provenance UI`
 
 ### Phase 6: The 7 QA Probes Regression Suite & End-to-End Verification
-- [ ] **6.1 Implement `tests/test_qa_probes.py`:**
+- [x] **6.1 Implement `tests/test_qa_probes.py`:**
   - Implement all 7 QA Probe regression tests specified in Section 5 (`test_probe_1_kirk_cousins_mendoza_benching`, `test_probe_2_no_deflection_on_missing_structured_data`, `test_probe_3_baker_mayfield_injury_model`, `test_probe_4_reject_false_bye_week_premise`, `test_probe_5_no_cross_path_contradiction_or_week_5_6_bug`, `test_probe_6_inspectable_provenance_on_chat_and_odds`, `test_probe_7_survivor_fail_closed_and_email_zero_team_leak`).
-- [ ] **6.2 Implement `tests/test_api.py` & Run Full Suite:**
+- [x] **6.2 Implement `tests/test_api.py` & Run Full Suite:**
   - Test `/health`, `/api/chat`, `/api/survivor`, `/api/world-state`, and `/` via FastAPI `TestClient`.
   - Run `pytest -v` across the entire repository and ensure 100% pass rate with 0 errors.
-- [ ] **6.3 Finalize Plan & Commit Phase 6:**
+- [x] **6.3 Finalize Plan & Commit Phase 6:**
   - Mark all checkboxes `[x]` in `IMPLEMENTATION_PLAN.md`.
   - Commit message: `test(qa-probes): encode all 7 QA probes as regression tests and finalize v2 rebuild`
 

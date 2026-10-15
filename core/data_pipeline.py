@@ -154,16 +154,32 @@ class SleeperClient:
     def __init__(self, base_url: str = SLEEPER_BASE, client: Optional[httpx.AsyncClient] = None):
         self.base_url = base_url.rstrip("/")
         self._client = client
+        self._bound_loop = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
+        import asyncio
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if (
+            self._client is None
+            or self._client.is_closed
+            or self._bound_loop != current_loop
+        ):
             self._client = httpx.AsyncClient(timeout=20.0, follow_redirects=True)
+            self._bound_loop = current_loop
         return self._client
 
     async def aclose(self) -> None:
         if self._client and not self._client.is_closed:
-            await self._client.aclose()
+            try:
+                await self._client.aclose()
+            except Exception:
+                pass
             self._client = None
+            self._bound_loop = None
 
     async def fetch_nfl_state(
         self, force_refresh: bool = False
