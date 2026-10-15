@@ -484,6 +484,13 @@ async def chat(req: FlexibleChatRequest):
     )
 
 
+@app.get("/api/chat", include_in_schema=False)
+async def get_chat_redirect():
+    """Redirect browser GET requests on /api/chat to the interactive web UI at /."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/", status_code=307)
+
+
 # ── Explicit Survivor Endpoints ───────────────────────────────────────────
 
 class SurvivorRequest(BaseModel):
