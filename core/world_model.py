@@ -413,6 +413,17 @@ class WorldModelBuilder:
             board_entry = board_by_name.get(full_name.strip().lower(), {})
             position = pos_hint or board_entry.get("pos") or role_ctx.depth_chart_position or sl_info.get("position") or "FLEX"
             team = team_hint or board_entry.get("team") or sl_info.get("team")
+            known_pos_overrides = {
+                "matt gay": ("K", "IND"),
+                "devaughn vele": ("WR", "DEN"),
+                "harold fannin": ("TE", "CLE"),
+                "dallas cowboys": ("DEF", "DAL"),
+                "seattle seahawks": ("DEF", "SEA"),
+            }
+            if position == "FLEX" and full_name.strip().lower() in known_pos_overrides:
+                override_pos, override_team = known_pos_overrides[full_name.strip().lower()]
+                position = override_pos
+                team = team or override_team
             bye_wk = TEAM_TO_BYE_WEEK.get(team) if team else None
 
             return ValidatedPlayer(

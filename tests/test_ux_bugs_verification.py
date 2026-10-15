@@ -109,3 +109,33 @@ async def test_user_qbs_present_and_clearly_labeled_in_snapshot():
     assert mayfield.team == "TB"
     assert mayfield.injury.status == "Out"
     assert mayfield.injury.body_part == "Thumb"
+
+
+@pytest.mark.asyncio
+async def test_repro_questions_return_named_players_with_zero_fallback():
+    """Verify that all repro questions return specific, named-player answers with ZERO fallback text."""
+    test_cases = [
+        ("Who should I start at wide receiver this week?", ["Davante Adams", "Jakobi Meyers"]),
+        ("Who should I start at running back this week?", ["Christian McCaffrey", "Bucky Irving"]),
+        ("Is Davante Adams a good start this week?", ["Davante Adams"]),
+        ("Give me waiver wire targets", ["De'Von Achane"]),
+        ("help with my lineup", ["Bo Nix", "Christian McCaffrey", "Davante Adams"]),
+    ]
+
+    fallback_signature = "red-zone share metrics are currently missing"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        for prompt, expected_names in test_cases:
+            resp = await client.post("/api/chat", json={"message": prompt})
+            assert resp.status_code == 200
+            data = resp.json()
+            response_text = data["response"]
+
+            # Must NOT contain fallback text
+            assert fallback_signature not in response_text.lower(), f"Fallback emitted for '{prompt}': {response_text}"
+            assert "note: specific secondary" not in response_text.lower()
+
+            # Must contain specific, named-player answers
+            for name in expected_names:
+                assert name in response_text, f"Expected '{name}' in response for '{prompt}', got: {response_text}"
+
