@@ -9,7 +9,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from core.config import SURVIVOR_FAIL_CLOSED_TEMPLATE
+from core.config import ANTHONY_SURVIVOR_USED_TEAMS, SURVIVOR_FAIL_CLOSED_TEMPLATE
 from core.exceptions import SurvivorGateError
 from core.provenance import build_provenance_record
 from core.schemas import NFLGameOdds, ProvenanceRecord, SurvivorPickResult, WorldStateSnapshot
@@ -86,7 +86,11 @@ class SurvivorEngine:
         If odds data is unconfigured, failed, or empty, halt immediately and return
         deterministic SURVIVOR_FAIL_CLOSED_TEMPLATE without calling the LLM.
         """
-        used = {t.strip().upper() for t in (used_teams or [])}
+        # Plumb Anthony's survivor pick history (SEA, LAC, BUF, BAL, HOU) into used_teams
+        combined_used: List[str] = list(ANTHONY_SURVIVOR_USED_TEAMS)
+        if used_teams:
+            combined_used.extend(used_teams)
+        used = {t.strip().upper() for t in combined_used if t}
 
         # Locate odds provenance
         odds_prov: Optional[ProvenanceRecord] = None

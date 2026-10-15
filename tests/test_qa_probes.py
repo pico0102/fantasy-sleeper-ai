@@ -78,17 +78,19 @@ async def test_probe_2_no_deflection_on_missing_structured_data():
 
 @pytest.mark.asyncio
 async def test_probe_3_baker_mayfield_injury_model():
-    """Probe 3: Evaluate Baker Mayfield active shoulder injury and floor volatility."""
+    """Probe 3: Evaluate Baker Mayfield active thumb injury, Out status, and floor volatility."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post("/api/chat", json={"message": "Evaluate Baker Mayfield status and floor for this week"})
         assert resp.status_code == 200
         data = resp.json()
 
         response_text = data["response"]
-        # Must surface injury
-        assert "shoulder" in response_text.lower() or "questionable" in response_text.lower()
+        # Must surface dislocated thumb and Out status
+        assert "thumb" in response_text.lower() or "out" in response_text.lower()
         # Active injury alerts present in payload
         assert any("Baker Mayfield" in a or "Mayfield" in a for a in data["injury_alerts"])
+        # Irrelevant alerts must NOT be injected
+        assert not any("Kirk Cousins" in a or "Cousins" in a for a in data["injury_alerts"])
 
 
 @pytest.mark.asyncio
@@ -227,3 +229,96 @@ async def test_probe_7_survivor_fail_closed_and_email_zero_team_leak():
 
             # 32 NFL team zero-leak scan
             assert_no_nfl_team_leaked(email_data["detail"])
+
+
+@pytest.mark.asyncio
+async def test_probe_8_qb_start_sit_names_specific_player_no_vague_closings():
+    """Probe 8: QB start/sit path must name a specific player and forbid vague closings."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/chat", json={"message": "Should I start Baker Mayfield this week or someone else?"})
+        assert resp.status_code == 200
+        data = resp.json()
+        response_text = data["response"]
+
+        # Must explicitly name players to START and SIT
+        assert any(w in response_text for w in ["SIT", "Sit", "sit"])
+        assert any(w in response_text for w in ["START", "Start", "start"])
+        assert "Baker Mayfield" in response_text or "Mayfield" in response_text
+
+        # Must NOT contain vague closings
+        vague_phrases = [
+            "consider other options",
+            "consider your options",
+            "weigh your alternatives",
+            "monitor the situation",
+            "depending on your bench",
+        ]
+        for vp in vague_phrases:
+            assert vp not in response_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_probe_9_survivor_burned_teams_history_plumbed():
+    """Probe 9: Anthony's burned survivor teams (SEA, LAC, BUF, BAL, HOU) can never be recommended."""
+    mock_odds = [
+        # BUF is the heaviest favorite (-14.0), but is burned in Anthony's history
+        NFLGameOdds(
+            game_id="g_buf",
+            nfl_week=6,
+            commence_time_utc="2026-10-18T17:00:00Z",
+            home_team="BUF",
+            away_team="NE",
+            favorite_team="BUF",
+            underdog_team="NE",
+            spread_points=-14.0,
+            favorite_moneyline=-900,
+            implied_win_prob=0.90,
+        ),
+        # DET is eligible (-7.5)
+        NFLGameOdds(
+            game_id="g_det",
+            nfl_week=6,
+            commence_time_utc="2026-10-18T17:00:00Z",
+            home_team="GB",
+            away_team="DET",
+            favorite_team="DET",
+            underdog_team="GB",
+            spread_points=-7.5,
+            favorite_moneyline=-350,
+            implied_win_prob=0.77,
+        ),
+    ]
+
+    with patch("core.data_pipeline.OddsAPIClient.fetch_nfl_odds") as mock_fetch:
+        mock_fetch.return_value = (
+            mock_odds,
+            build_provenance_record("the_odds_api_nfl", "odds_api", "odds", status="ok", record_count=2),
+        )
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/api/survivor", json={})
+            assert resp.status_code == 200
+            data = resp.json()
+
+            # BUF must NOT be recommended despite being the biggest favorite, because it was burned!
+            assert data["recommended_team"] != "BUF"
+            assert data["recommended_team"] == "DET"
+
+
+@pytest.mark.asyncio
+async def test_probe_10_only_inject_relevant_alerts():
+    """Probe 10: Only inject role/injury alerts relevant to the specific question asked."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # 1. Query about Kirk Cousins: only Cousins/Mendoza alert should be injected
+        resp_cousins = await client.post("/api/chat", json={"message": "Should I pick up Kirk Cousins?"})
+        assert resp_cousins.status_code == 200
+        data_c = resp_cousins.json()
+        assert any("Kirk Cousins" in a or "Mendoza" in a for a in data_c["injury_alerts"])
+        assert not any("Baker Mayfield" in a for a in data_c["injury_alerts"])
+
+        # 2. Query about Baker Mayfield: only Mayfield alert should be injected
+        resp_mayfield = await client.post("/api/chat", json={"message": "Evaluate Baker Mayfield status and floor"})
+        assert resp_mayfield.status_code == 200
+        data_m = resp_mayfield.json()
+        assert any("Baker Mayfield" in a for a in data_m["injury_alerts"])
+        assert not any("Kirk Cousins" in a for a in data_m["injury_alerts"])

@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -20,6 +21,7 @@ from core.data_pipeline import (
     normalize_nfl_team,
 )
 from core.news_pipeline import (
+    check_all_override_conflicts,
     get_notable_role_players,
     hydrate_player_role_and_news,
     load_news_and_depth_chart,
@@ -104,6 +106,101 @@ def scan_mentioned_players(
                     seen_ids.add(pid)
 
     return found
+
+
+def filter_relevant_alerts(alerts: List[str], query: Optional[str]) -> List[str]:
+    """Filter active role and injury alerts to only those relevant to the specific question asked.
+
+    Criteria:
+    - If no query is provided, return all alerts.
+    - Specific player mentioned: Return alert if the player (or supplanted player) is mentioned.
+    - Specific position mentioned (QB, RB, WR, TE, K, DEF, FLEX): Return alerts matching that position.
+    - Specific team mentioned: Return alerts for players on that team.
+    - Broad/general team review (without specific player/position): Include roster injury alerts.
+    - Irrelevant queries (survivor, unrelated players): Exclude unmatched alerts.
+    """
+    if not query or not query.strip():
+        return alerts
+
+    q_lower = f" {query.lower()} "
+
+    # Check for position keywords in query
+    pos_map = {
+        "qb": ["(qb,", " qb ", "quarterback", "quarterbacks"],
+        "rb": ["(rb,", " rb ", "running back", "running backs", "halfback"],
+        "wr": ["(wr,", " wr ", "wide receiver", "wide receivers", "receiver", "receivers"],
+        "te": ["(te,", " te ", "tight end", "tight ends"],
+        "k": ["(k,", " kicker ", " k "],
+        "def": ["(def,", " defense ", " d/st ", "dst"],
+    }
+
+    targeted_positions: Set[str] = set()
+    for pos, patterns in pos_map.items():
+        for pat in patterns[1:]:
+            if pat in q_lower:
+                targeted_positions.add(pos)
+                break
+    if " flex " in q_lower or " flexes " in q_lower:
+        targeted_positions.update(["rb", "wr", "te"])
+
+    alert_pattern = re.compile(r"^\[.*?\]\s*([^(]+?)\s*\(([^,]+),\s*([^)]+)\):(.*)$")
+
+    relevant: List[str] = []
+    has_specific_player = False
+
+    for alert in alerts:
+        match = alert_pattern.match(alert)
+        if not match:
+            # Fallback keyword match
+            if any(len(w) >= 5 and f" {w.lower()} " in q_lower for w in alert.split()):
+                relevant.append(alert)
+            continue
+
+        player_name = match.group(1).strip()
+        pos = match.group(2).strip().lower()
+        team = match.group(3).strip().lower()
+        rest = match.group(4).strip().lower()
+
+        p_name_lower = player_name.lower()
+        parts = p_name_lower.split()
+        last_name = parts[-1] if parts else ""
+
+        is_player_match = False
+        if p_name_lower in q_lower:
+            is_player_match = True
+        elif len(last_name) >= 4 and f" {last_name} " in q_lower:
+            is_player_match = True
+
+        # Check supplanted_by if referenced
+        if "supplanted by " in rest:
+            supplanted = rest.split("supplanted by ")[1].split(")")[0].strip()
+            if supplanted and (supplanted in q_lower or any(len(p) >= 4 and f" {p} " in q_lower for p in supplanted.split())):
+                is_player_match = True
+
+        if is_player_match:
+            has_specific_player = True
+            relevant.append(alert)
+            continue
+
+        # Positional match if position was explicitly queried
+        if targeted_positions and pos in targeted_positions:
+            relevant.append(alert)
+            continue
+
+        # Team match if team abbreviation was explicitly queried
+        if len(team) >= 2 and f" {team} " in q_lower:
+            relevant.append(alert)
+            continue
+
+    # If general team/roster query without specific players or positions
+    if not has_specific_player and not targeted_positions:
+        general_keywords = ["team", "roster", "lineup", "all", "overview", "rate", "preview", "standings"]
+        if any(f" {k} " in q_lower for k in general_keywords):
+            for alert in alerts:
+                if alert.startswith("[ROSTER INJURY]") and alert not in relevant:
+                    relevant.append(alert)
+
+    return relevant
 
 
 class WorldModelBuilder:
@@ -396,6 +493,19 @@ class WorldModelBuilder:
                         f"{p.injury.status} ({p.injury.body_part or 'Unspecified'})"
                     )
 
+        # Filter alerts to only those relevant to the specific question asked
+        filtered_alerts = filter_relevant_alerts(alerts, query=query)
+
+        # Cross-check overrides against Sleeper database for conflict warnings
+        warnings: List[str] = []
+        try:
+            from app.sleeper import get_all_players_sync
+            sleeper_db = get_all_players_sync()
+            if news_feed and sleeper_db:
+                warnings.extend(check_all_override_conflicts(news_feed, sleeper_db))
+        except Exception as e:
+            log.debug("Override conflict cross-check: %s", e)
+
         # Consolidated provenance
         provenance = [
             nfl_state_prov,
@@ -433,8 +543,8 @@ class WorldModelBuilder:
             current_week_odds=odds_list,
             board_audit_summary=board_summary,
             provenance=provenance,
-            active_injury_and_role_alerts=alerts,
-            warnings=[],
+            active_injury_and_role_alerts=filtered_alerts,
+            warnings=warnings,
         )
 
         return snapshot

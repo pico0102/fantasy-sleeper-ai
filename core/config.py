@@ -23,6 +23,7 @@ TEAM_NAME: str = "Tony Romo's DUI Mugshot"
 # Survivor Pool Configuration
 SLEEPER_SURVIVOR_LEAGUE_ID: str = os.getenv("SLEEPER_SURVIVOR_LEAGUE_ID", "1393775027442167808").strip()
 ODDS_API_KEY: str = os.getenv("ODDS_API_KEY", "").strip()
+ANTHONY_SURVIVOR_USED_TEAMS: list[str] = ["SEA", "LAC", "BUF", "BAL", "HOU"]
 
 # Email Configuration
 GMAIL_SENDER: str = os.getenv("GMAIL_SENDER", "pico2014@gmail.com").strip()

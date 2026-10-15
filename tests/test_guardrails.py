@@ -68,7 +68,7 @@ def test_benching_directive_for_kirk_cousins():
         player_id="1167",
         full_name="Kirk Cousins",
         position="QB",
-        team="ATL",
+        team="LV",
         role_and_news=RoleAndNewsContext(
             depth_chart_position="QB",
             depth_chart_rank=2,
@@ -92,7 +92,7 @@ def test_post_reasoner_guardrail_enforces_mendoza():
         player_id="1167",
         full_name="Kirk Cousins",
         position="QB",
-        team="ATL",
+        team="LV",
         role_and_news=RoleAndNewsContext(
             depth_chart_position="QB",
             depth_chart_rank=2,

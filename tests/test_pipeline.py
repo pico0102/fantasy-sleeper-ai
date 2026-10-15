@@ -52,15 +52,35 @@ def test_news_depth_chart_loading_and_hydration():
     mayfield_role, mayfield_inj = hydrate_player_role_and_news("Baker Mayfield", news_feed=feed)
     assert mayfield_role.role_status == "confirmed_starter"
     assert mayfield_inj is not None
-    assert mayfield_inj.status == "Questionable"
+    assert mayfield_inj.status == "Out"
     assert mayfield_inj.is_medical_risk is True
-    assert mayfield_inj.body_part == "Right Shoulder"
+    assert mayfield_inj.body_part == "Thumb"
 
     # Verify notable players list
     notables = get_notable_role_players(news_feed=feed)
     names = [p.full_name for p in notables]
     assert "Kirk Cousins" in names
     assert "Fernando Mendoza" in names
+
+
+def test_override_sleeper_conflict_cross_check():
+    from core.news_pipeline import check_override_sleeper_conflicts
+
+    override = {
+        "full_name": "Kirk Cousins",
+        "team": "LV",
+        "depth_chart_rank": 2,
+        "role_status": "benched",
+    }
+    sleeper_data = {
+        "team": "ATL",
+        "injury_status": None,
+        "depth_chart_order": 1,
+    }
+    conflicts = check_override_sleeper_conflicts("Kirk Cousins", override, sleeper_data)
+    assert len(conflicts) >= 2
+    assert any("CONFLICT: TEAM" in c and "LV" in c and "ATL" in c for c in conflicts)
+    assert any("CONFLICT: DEPTH_CHART" in c for c in conflicts)
 
 
 def test_team_name_normalization():

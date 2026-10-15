@@ -115,12 +115,42 @@ def enforce_post_reasoner_guardrails(
         if player.full_name == "Kirk Cousins" and player.role_and_news.role_status == "benched":
             mendoza_name = player.role_and_news.supplanted_by or "Fernando Mendoza"
             if mendoza_name.lower() not in final_text.lower():
+                team_str = player.team or "Las Vegas"
                 prefix = (
                     f"**Alert (nfl_news_and_depth_charts):** Kirk Cousins has been officially benched "
-                    f"in favor of {mendoza_name}. He carries zero projected floor as Atlanta's backup QB.\n\n"
+                    f"in favor of {mendoza_name}. He carries zero projected floor as {team_str}'s backup QB.\n\n"
                 )
                 final_text = prefix + final_text
                 if "nfl_news_and_depth_charts" not in citations:
                     citations.append("nfl_news_and_depth_charts")
+
+        # If Baker Mayfield was queried and response failed to surface dislocated thumb/Out
+        if player.full_name == "Baker Mayfield" and player.injury.status == "Out":
+            if "thumb" not in final_text.lower() and "out" not in final_text.lower():
+                prefix = (
+                    f"**Alert (nfl_news_and_depth_charts):** Baker Mayfield is officially ruled Out "
+                    f"for Week {snapshot.nfl_week} due to a dislocated thumb. Do not start him.\n\n"
+                )
+                final_text = prefix + final_text
+                if "nfl_news_and_depth_charts" not in citations:
+                    citations.append("nfl_news_and_depth_charts")
+
+    # Guard against vague, non-committal QB closings
+    vague_phrases = [
+        "consider other options",
+        "consider your options",
+        "consider sitting him",
+        "weigh your alternatives",
+        "monitor the situation",
+    ]
+    for vp in vague_phrases:
+        if vp in final_text.lower():
+            # Replace with decisive phrasing
+            final_text = re.sub(
+                re.escape(vp),
+                "bench him immediately and lock in your highest-floor active starter",
+                final_text,
+                flags=re.IGNORECASE,
+            )
 
     return final_text, alerts, citations

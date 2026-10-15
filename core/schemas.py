@@ -83,6 +83,7 @@ class RoleAndNewsContext(BaseModel):
     news_summary: Optional[str] = None
     last_news_updated_utc: Optional[str] = None
     is_role_risk: bool = False
+    override_conflicts: List[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def compute_role_risk(self) -> "RoleAndNewsContext":

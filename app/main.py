@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from core.board_auditor import audit_and_sanitize_board
 from core.config import (
+    ANTHONY_SURVIVOR_USED_TEAMS,
     DEFAULT_GEMINI_MODEL,
     GEMINI_API_KEY,
     GEMINI_MODEL,
@@ -235,7 +236,7 @@ class FlexibleChatRequest(BaseModel):
     session_id: Optional[str] = "default"
     mode: Optional[str] = "fantasy"
     league_context: Optional[str] = "egg"
-    used_teams: List[str] = Field(default_factory=list)
+    used_teams: List[str] = Field(default_factory=lambda: list(ANTHONY_SURVIVOR_USED_TEAMS))
     force_refresh: bool = False
 
     def get_prompt_text(self) -> str:
@@ -426,7 +427,8 @@ async def chat(req: FlexibleChatRequest):
     )
 
     if mode == "survivor":
-        survivor_res = _survivor_engine.evaluate_week(snapshot, used_teams=req.used_teams)
+        survivor_used = list(dict.fromkeys([*ANTHONY_SURVIVOR_USED_TEAMS, *(req.used_teams or [])]))
+        survivor_res = _survivor_engine.evaluate_week(snapshot, used_teams=survivor_used)
         latency = int((time.time() - start_t) * 1000)
         return UnifiedChatResponse(
             response=survivor_res.reasoning_markdown,
@@ -485,7 +487,7 @@ async def chat(req: FlexibleChatRequest):
 # ── Explicit Survivor Endpoints ───────────────────────────────────────────
 
 class SurvivorRequest(BaseModel):
-    used_teams: List[str] = Field(default_factory=list)
+    used_teams: List[str] = Field(default_factory=lambda: list(ANTHONY_SURVIVOR_USED_TEAMS))
     session_id: Optional[str] = "default"
     force_refresh: bool = False
 
@@ -497,7 +499,8 @@ async def evaluate_survivor(req: SurvivorRequest):
         session_id=req.session_id or "default",
         force_refresh=req.force_refresh,
     )
-    return _survivor_engine.evaluate_week(snapshot, used_teams=req.used_teams)
+    survivor_used = list(dict.fromkeys([*ANTHONY_SURVIVOR_USED_TEAMS, *(req.used_teams or [])]))
+    return _survivor_engine.evaluate_week(snapshot, used_teams=survivor_used)
 
 
 @app.post("/api/survivor/email-preview", tags=["Survivor"])
@@ -507,7 +510,8 @@ async def survivor_email_preview(req: SurvivorRequest):
         session_id=req.session_id or "default",
         force_refresh=req.force_refresh,
     )
-    return _email_dispatcher.run(snapshot, used_teams=req.used_teams)
+    survivor_used = list(dict.fromkeys([*ANTHONY_SURVIVOR_USED_TEAMS, *(req.used_teams or [])]))
+    return _email_dispatcher.run(snapshot, used_teams=survivor_used)
 
 
 # ── World State Inspection Endpoint ───────────────────────────────────────

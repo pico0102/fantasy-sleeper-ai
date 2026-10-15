@@ -96,6 +96,100 @@ def load_news_and_depth_chart(
         return {}, prov
 
 
+def check_override_sleeper_conflicts(
+    player_name: str,
+    override_entry: Dict[str, Any],
+    sleeper_data: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    """Detect discrepancies between a news/depth override and Sleeper metadata.
+
+    Flags conflicts when:
+    - Team in override differs from Sleeper team (e.g. LV vs ATL).
+    - Injury status in override differs from Sleeper injury_status (e.g. Out vs Questionable/Active).
+    - Injury body part differs (e.g. Thumb vs Shoulder).
+    - Depth chart rank / role differs (e.g. starter in Sleeper vs benched in override).
+
+    Returns:
+        List of conflict warning strings.
+    """
+    conflicts: List[str] = []
+    if not sleeper_data or not isinstance(sleeper_data, dict):
+        return conflicts
+
+    name = override_entry.get("full_name", player_name)
+
+    # 1. Team check
+    ov_team = (override_entry.get("team") or "").strip().upper()
+    sl_team = (sleeper_data.get("team") or "").strip().upper()
+    if ov_team and sl_team and ov_team != sl_team:
+        conflicts.append(
+            f"[CONFLICT: TEAM] {name}: override team '{ov_team}' conflicts with Sleeper team '{sl_team}'"
+        )
+
+    # 2. Injury status check
+    ov_inj = override_entry.get("injury") or {}
+    ov_status = ov_inj.get("status") if isinstance(ov_inj, dict) else None
+    sl_status = sleeper_data.get("injury_status") or "Active"
+    if ov_status:
+        norm_ov_status = ov_status.strip().title()
+        norm_sl_status = sl_status.strip().title() if sl_status else "Active"
+        if norm_ov_status != norm_sl_status:
+            conflicts.append(
+                f"[CONFLICT: INJURY_STATUS] {name}: override status '{norm_ov_status}' conflicts with Sleeper status '{norm_sl_status}'"
+            )
+
+    # 3. Injury body part check
+    ov_part = ov_inj.get("body_part") if isinstance(ov_inj, dict) else None
+    sl_part = sleeper_data.get("injury_body_part")
+    if ov_part and sl_part and ov_part.strip().lower() != sl_part.strip().lower():
+        conflicts.append(
+            f"[CONFLICT: INJURY_BODY_PART] {name}: override body part '{ov_part}' conflicts with Sleeper body part '{sl_part}'"
+        )
+
+    # 4. Depth chart rank / role check
+    ov_rank = override_entry.get("depth_chart_rank")
+    sl_order = sleeper_data.get("depth_chart_order")
+    ov_role = override_entry.get("role_status")
+    if ov_rank is not None and sl_order is not None and int(ov_rank) != int(sl_order):
+        conflicts.append(
+            f"[CONFLICT: DEPTH_CHART] {name}: override rank {ov_rank} ({ov_role}) conflicts with Sleeper depth order {sl_order}"
+        )
+
+    return conflicts
+
+
+def check_all_override_conflicts(
+    overrides: Dict[str, Dict[str, Any]],
+    sleeper_players_db: Dict[str, Any],
+) -> List[str]:
+    """Cross-check all override entries against a Sleeper players dictionary.
+
+    Returns:
+        List of all conflict strings detected across all players.
+    """
+    all_conflicts: List[str] = []
+    if not overrides or not sleeper_players_db:
+        return all_conflicts
+
+    by_id: Dict[str, Dict[str, Any]] = {}
+    by_name: Dict[str, Dict[str, Any]] = {}
+    for pid, pdata in sleeper_players_db.items():
+        if isinstance(pdata, dict):
+            by_id[str(pid)] = pdata
+            fname = pdata.get("full_name") or f"{pdata.get('first_name', '')} {pdata.get('last_name', '')}".strip()
+            if fname:
+                by_name[fname.lower()] = pdata
+
+    for key_name, entry in overrides.items():
+        pid = str(entry.get("player_id", ""))
+        sl_player = by_id.get(pid) or by_name.get(key_name.lower()) or by_name.get(entry.get("full_name", "").lower())
+        if sl_player:
+            c = check_override_sleeper_conflicts(key_name, entry, sl_player)
+            all_conflicts.extend(c)
+
+    return all_conflicts
+
+
 def hydrate_player_role_and_news(
     player_name: str,
     sleeper_player_dict: Optional[Dict[str, Any]] = None,
@@ -124,6 +218,12 @@ def hydrate_player_role_and_news(
         if "injury" in matched_entry and isinstance(matched_entry["injury"], dict):
             injury_override = InjuryContext(**matched_entry["injury"])
 
+        conflicts = check_override_sleeper_conflicts(
+            player_name=player_name,
+            override_entry=matched_entry,
+            sleeper_data=sleeper_player_dict,
+        )
+
         role_ctx = RoleAndNewsContext(
             depth_chart_position=matched_entry.get("depth_chart_position"),
             depth_chart_rank=matched_entry.get("depth_chart_rank"),
@@ -132,6 +232,7 @@ def hydrate_player_role_and_news(
             recent_news_headlines=matched_entry.get("recent_news_headlines", []),
             news_summary=matched_entry.get("news_summary"),
             last_news_updated_utc=matched_entry.get("last_news_updated_utc"),
+            override_conflicts=conflicts,
         )
         return role_ctx, injury_override
 
