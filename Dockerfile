@@ -11,9 +11,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code and bundled skill data
+# Copy application code, core modules, catalogs, and bundled skill data
 COPY app/ ./app/
+COPY core/ ./core/
 COPY .agents/ ./.agents/
+COPY player_ids.json board.json news_depth_overrides.json main.py ./
 
 # Cloud Run injects $PORT at runtime; default to 8080 for local docker run
 ENV PORT=8080
