@@ -237,18 +237,18 @@ Execute Phases 0 through 6 sequentially without pausing for human confirmation. 
   - Commit message: `chore(v2): initialize v2 rearchitecture branch and tag v1 legacy baseline`
 
 ### Phase 1: Schemas, Single-Sourced Week Resolver & `board.json` Bias Auditor
-- [ ] **1.1 Implement `core/config.py` and `core/exceptions.py`:**
+- [x] **1.1 Implement `core/config.py` and `core/exceptions.py`:**
   - Set `DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"`.
   - Define `FantasyAIError`, `DataValidationError`, `UpstreamSourceError`, `ReasonerExecutionError`, and `SurvivorGateError`.
-- [ ] **1.2 Implement `core/schemas.py` and `core/provenance.py`:**
+- [x] **1.2 Implement `core/schemas.py` and `core/provenance.py`:**
   - Implement all Pydantic v2 schemas from Section 3 (`ProvenanceRecord`, `InjuryContext`, `RoleAndNewsContext`, `ValidatedPlayer`, `NFLGameOdds`, `SurvivorPickResult`, `WorldStateSnapshot`, `ChatRequest`, `ChatResponse`).
-- [ ] **1.3 Implement `core/week_resolver.py`:**
+- [x] **1.3 Implement `core/week_resolver.py`:**
   - Implement `resolve_canonical_nfl_week` as the single-sourced NFL week function fixing the Week 5 / Week 6 off-by-one bug.
-- [ ] **1.4 Implement `core/board_auditor.py`:**
+- [x] **1.4 Implement `core/board_auditor.py`:**
   - Implement startup audit of `board.json` to detect and strip v1 positional bias multipliers and produce `board_audit_summary`.
-- [ ] **1.5 Create `tests/test_schemas.py` and `tests/test_week_resolver.py`:**
+- [x] **1.5 Create `tests/test_schemas.py` and `tests/test_week_resolver.py`:**
   - Test schema validation, `InjuryContext` and `RoleAndNewsContext` risk flags, `board.json` bias stripping, and Week 5 / Week 6 rollover determinism.
-- [ ] **1.6 Verify & Commit Phase 1:**
+- [x] **1.6 Verify & Commit Phase 1:**
   - Run `pytest tests/test_schemas.py tests/test_week_resolver.py`.
   - Commit message: `feat(core): add Pydantic v2 schemas, canonical week resolver, and board bias auditor`
 
