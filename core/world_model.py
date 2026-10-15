@@ -108,21 +108,36 @@ def scan_mentioned_players(
     return found
 
 
-def filter_relevant_alerts(alerts: List[str], query: Optional[str]) -> List[str]:
+def filter_relevant_alerts(
+    alerts: List[str],
+    query: Optional[str],
+    user_rostered_names: Optional[Set[str]] = None,
+) -> List[str]:
     """Filter active role and injury alerts to only those relevant to the specific question asked.
 
     Criteria:
-    - If no query is provided, return all alerts.
-    - Specific player mentioned: Return alert if the player (or supplanted player) is mentioned.
-    - Specific position mentioned (QB, RB, WR, TE, K, DEF, FLEX): Return alerts matching that position.
-    - Specific team mentioned: Return alerts for players on that team.
-    - Broad/general team review (without specific player/position): Include roster injury alerts.
-    - Irrelevant queries (survivor, unrelated players): Exclude unmatched alerts.
+    - If no query is provided, return up to 2-3 roster alerts.
+    - An alert fires ONLY if the player is:
+      (a) on the user's roster,
+      (b) a waiver/free-agent candidate under discussion this turn, or
+      (c) explicitly named in the user's message.
+    - Capped at 2-3 alerts per response, ranked by relevance.
+    - Cousins triggers on waiver/pickup questions and never on unrelated start/sit questions.
     """
+    if not alerts:
+        return []
+
     if not query or not query.strip():
-        return alerts
+        roster_alerts = [a for a in alerts if a.startswith("[ROSTER INJURY]") or "ROSTER" in a]
+        return roster_alerts[:3] if roster_alerts else alerts[:3]
 
     q_lower = f" {query.lower()} "
+
+    waiver_terms = [
+        "waiver", "waivers", "pickup", "pick up", "pickups", "pick-up",
+        "add", "adds", "claim", "claims", "faab", "free agent", "free agents", "wire", "drop"
+    ]
+    is_waiver_query = any(w in q_lower for w in waiver_terms)
 
     # Check for position keywords in query
     pos_map = {
@@ -145,15 +160,29 @@ def filter_relevant_alerts(alerts: List[str], query: Optional[str]) -> List[str]
 
     alert_pattern = re.compile(r"^\[.*?\]\s*([^(]+?)\s*\(([^,]+),\s*([^)]+)\):(.*)$")
 
-    relevant: List[str] = []
+    # Detect if any specific player is explicitly named in the query
     has_specific_player = False
+    for alert in alerts:
+        match = alert_pattern.match(alert)
+        if match:
+            p_name = match.group(1).strip().lower()
+            p_last = p_name.split()[-1] if p_name else ""
+            if p_name in q_lower or (len(p_last) >= 4 and f" {p_last} " in q_lower):
+                has_specific_player = True
+                break
+            if "supplanted by " in match.group(4).lower():
+                supp = match.group(4).lower().split("supplanted by ")[1].split(")")[0].strip()
+                if supp in q_lower or any(len(p) >= 4 and f" {p} " in q_lower for p in supp.split()):
+                    has_specific_player = True
+                    break
+
+    scored_alerts: List[Tuple[int, str]] = []
 
     for alert in alerts:
         match = alert_pattern.match(alert)
         if not match:
-            # Fallback keyword match
             if any(len(w) >= 5 and f" {w.lower()} " in q_lower for w in alert.split()):
-                relevant.append(alert)
+                scored_alerts.append((40, alert))
             continue
 
         player_name = match.group(1).strip()
@@ -165,42 +194,65 @@ def filter_relevant_alerts(alerts: List[str], query: Optional[str]) -> List[str]
         parts = p_name_lower.split()
         last_name = parts[-1] if parts else ""
 
-        is_player_match = False
+        # Condition (c): Explicitly named in user's message
+        is_named = False
         if p_name_lower in q_lower:
-            is_player_match = True
+            is_named = True
         elif len(last_name) >= 4 and f" {last_name} " in q_lower:
-            is_player_match = True
+            is_named = True
 
         # Check supplanted_by if referenced
         if "supplanted by " in rest:
-            supplanted = rest.split("supplanted by ")[1].split(")")[0].strip()
+            supplanted = rest.split("supplanted by ")[1].split(")")[0].strip().lower()
             if supplanted and (supplanted in q_lower or any(len(p) >= 4 and f" {p} " in q_lower for p in supplanted.split())):
-                is_player_match = True
+                is_named = True
 
-        if is_player_match:
-            has_specific_player = True
-            relevant.append(alert)
+        if is_named:
+            scored_alerts.append((100, alert))
             continue
 
-        # Positional match if position was explicitly queried
-        if targeted_positions and pos in targeted_positions:
-            relevant.append(alert)
+        # If a specific player is queried, do NOT inject unrelated players
+        if has_specific_player:
             continue
 
-        # Team match if team abbreviation was explicitly queried
-        if len(team) >= 2 and f" {team} " in q_lower:
-            relevant.append(alert)
+        # Condition (a): On the user's roster
+        is_roster_alert = alert.startswith("[ROSTER INJURY]") or (
+            user_rostered_names is not None and p_name_lower in user_rostered_names
+        )
+        if is_roster_alert:
+            if targeted_positions:
+                if pos in targeted_positions:
+                    scored_alerts.append((85, alert))
+                # Unrelated position on roster: do not fire
+            else:
+                # General query without specific player or position: only fire on roster/team keywords
+                general_keywords = ["team", "roster", "lineup", "all", "overview", "rate", "preview", "standings"]
+                if any(f" {k} " in q_lower for k in general_keywords):
+                    scored_alerts.append((60, alert))
             continue
 
-    # If general team/roster query without specific players or positions
-    if not has_specific_player and not targeted_positions:
-        general_keywords = ["team", "roster", "lineup", "all", "overview", "rate", "preview", "standings"]
-        if any(f" {k} " in q_lower for k in general_keywords):
-            for alert in alerts:
-                if alert.startswith("[ROSTER INJURY]") and alert not in relevant:
-                    relevant.append(alert)
+        # Condition (b): Waiver/free-agent candidate under discussion this turn
+        # MUST be a waiver query; NEVER fires on unrelated start/sit questions
+        if is_waiver_query:
+            if targeted_positions:
+                if pos in targeted_positions:
+                    scored_alerts.append((75, alert))
+            else:
+                scored_alerts.append((70, alert))
+            continue
 
-    return relevant
+    # Sort by relevance descending, deduplicate while preserving order, cap at 3
+    scored_alerts.sort(key=lambda x: x[0], reverse=True)
+    seen_texts = set()
+    result: List[str] = []
+    for score, alt in scored_alerts:
+        if alt not in seen_texts:
+            seen_texts.add(alt)
+            result.append(alt)
+            if len(result) >= 3:
+                break
+
+    return result
 
 
 class WorldModelBuilder:
@@ -317,6 +369,13 @@ class WorldModelBuilder:
                 error_detail=str(e),
             )
 
+        sleeper_db: Dict[str, Any] = {}
+        try:
+            from app.sleeper import get_all_players_sync
+            sleeper_db = get_all_players_sync() or {}
+        except Exception:
+            sleeper_db = {}
+
         # Helper to construct a ValidatedPlayer
         def build_player(
             pid: str,
@@ -325,24 +384,35 @@ class WorldModelBuilder:
             team_hint: Optional[str] = None,
             injury_hint: Optional[str] = None,
         ) -> ValidatedPlayer:
-            full_name = name_hint or player_ids_map.get(pid, f"Player {pid}")
-            role_ctx, inj_override = hydrate_player_role_and_news(full_name, news_feed=news_feed)
+            sl_info = sleeper_db.get(pid, {}) if isinstance(sleeper_db, dict) else {}
+            sl_name = (
+                sl_info.get("full_name")
+                or f"{sl_info.get('first_name', '')} {sl_info.get('last_name', '')}".strip()
+                or None
+            )
+            full_name = name_hint or player_ids_map.get(pid) or sl_name or f"Player {pid}"
+            role_ctx, inj_override = hydrate_player_role_and_news(
+                full_name, sleeper_player_dict=sl_info, news_feed=news_feed
+            )
 
             # Determine medical status
             status_lit = "Active"
             if inj_override:
                 inj_ctx = inj_override
             else:
-                if injury_hint:
-                    status_lit = injury_hint if injury_hint in {
+                sl_inj = sl_info.get("injury_status")
+                raw_inj = injury_hint or sl_inj
+                if raw_inj:
+                    status_lit = raw_inj if raw_inj in {
                         "Questionable", "Doubtful", "Out", "IR", "PUP", "Suspended", "COV"
                     } else "Active"
-                inj_ctx = InjuryContext(status=status_lit)
+                body_part = sl_info.get("injury_body_part")
+                inj_ctx = InjuryContext(status=status_lit, body_part=body_part)
 
             # Board lookup
             board_entry = board_by_name.get(full_name.strip().lower(), {})
-            position = pos_hint or board_entry.get("pos", role_ctx.depth_chart_position or "FLEX")
-            team = team_hint or board_entry.get("team")
+            position = pos_hint or board_entry.get("pos") or role_ctx.depth_chart_position or sl_info.get("position") or "FLEX"
+            team = team_hint or board_entry.get("team") or sl_info.get("team")
             bye_wk = TEAM_TO_BYE_WEEK.get(team) if team else None
 
             return ValidatedPlayer(
@@ -457,44 +527,73 @@ class WorldModelBuilder:
             trending_players.append(p_obj)
 
         # Notable role changes (seed from news feed)
-        notable_role_changes: List[ValidatedPlayer] = get_notable_role_players(news_feed=news_feed)
+        raw_notable_role_changes: List[ValidatedPlayer] = get_notable_role_players(news_feed=news_feed)
 
-        # Entity pre-lookup: scan query for mentioned players and hydrate into notable_role_changes
+        # Entity pre-lookup: scan query for mentioned players and hydrate into raw_notable_role_changes
         if query:
             mentioned = scan_mentioned_players(query, player_ids_map)
-            existing_names = {p.full_name.lower() for p in notable_role_changes}
+            existing_names = {p.full_name.lower() for p in raw_notable_role_changes}
             for pid, name in mentioned:
                 if name.lower() not in existing_names:
                     p_obj = build_player(pid, name_hint=name)
-                    notable_role_changes.append(p_obj)
+                    raw_notable_role_changes.append(p_obj)
                     existing_names.add(name.lower())
 
-        # Compile active injury and role alerts
-        alerts: List[str] = []
-        for p in notable_role_changes:
+        user_rostered_names: Set[str] = set()
+        if user_roster:
+            for p in user_roster.starters + user_roster.bench + user_roster.ir:
+                user_rostered_names.add(p.full_name.lower())
+
+        # Compile active injury and role alerts in clean natural language
+        raw_alerts: List[str] = []
+        for p in raw_notable_role_changes:
             if p.role_and_news.is_role_risk:
-                supplanted_str = f" (supplanted by {p.role_and_news.supplanted_by})" if p.role_and_news.supplanted_by else ""
-                alerts.append(
+                supplanted_str = f" behind starter {p.role_and_news.supplanted_by}" if p.role_and_news.supplanted_by else ""
+                raw_alerts.append(
                     f"[BENCHING/ROLE RISK] {p.full_name} ({p.position}, {p.team or 'FA'}): "
-                    f"status={p.role_and_news.role_status}, depth_chart_rank={p.role_and_news.depth_chart_rank}"
-                    f"{supplanted_str}"
+                    f"Demoted to backup{supplanted_str}"
                 )
             if p.injury.is_medical_risk:
-                alerts.append(
+                raw_alerts.append(
                     f"[INJURY ALERT] {p.full_name} ({p.position}, {p.team or 'FA'}): "
-                    f"{p.injury.status} - {p.injury.body_part or 'Medical issue'}"
+                    f"{p.injury.status} ({p.injury.body_part or 'Medical issue'})"
                 )
 
         if user_roster:
             for p in user_roster.starters + user_roster.bench:
                 if p.injury.is_medical_risk:
-                    alerts.append(
+                    raw_alerts.append(
                         f"[ROSTER INJURY] {p.full_name} ({p.position}, {p.team or 'FA'}): "
                         f"{p.injury.status} ({p.injury.body_part or 'Unspecified'})"
                     )
 
-        # Filter alerts to only those relevant to the specific question asked
-        filtered_alerts = filter_relevant_alerts(alerts, query=query)
+        # Gate alerts by relevance:
+        # fires only if player is (a) on user's roster, (b) waiver candidate under discussion, (c) explicitly named.
+        # Cap at 2-3 alerts.
+        filtered_alerts = filter_relevant_alerts(
+            raw_alerts, query=query, user_rostered_names=user_rostered_names
+        )
+
+        # Gate notable_role_changes at the pipeline level so irrelevant players don't pollute prompt/context
+        notable_role_changes: List[ValidatedPlayer] = []
+        if query and query.strip():
+            alert_names_in_filtered = set()
+            for a in filtered_alerts:
+                m = re.match(r"^\[.*?\]\s*([^(]+?)\s*\(", a)
+                if m:
+                    alert_names_in_filtered.add(m.group(1).strip().lower())
+
+            q_lower_query = f" {query.lower()} "
+            for p in raw_notable_role_changes:
+                p_last = p.full_name.split()[-1].lower() if p.full_name else ""
+                if (
+                    p.full_name.lower() in alert_names_in_filtered
+                    or p.full_name.lower() in q_lower_query
+                    or (len(p_last) >= 4 and f" {p_last} " in q_lower_query)
+                ):
+                    notable_role_changes.append(p)
+        else:
+            notable_role_changes = raw_notable_role_changes
 
         # Cross-check overrides against Sleeper database for conflict warnings
         warnings: List[str] = []

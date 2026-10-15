@@ -58,6 +58,7 @@ SURVIVOR_FAIL_CLOSED_TEMPLATE: str = (
 
 # Non-negotiable Reasoner Mandates
 ANTI_DEFLECTION_MANDATE: str = "If structured data is missing, reason from available context and state what is missing; never deflect."
-PREMISE_VERIFICATION_MANDATE: str = "Never accept a user's premise about bye weeks, injuries, depth-chart starter status, or matchups at face value. Verify every premise against `WorldStateSnapshot` first, and if the user's premise is false, correct it explicitly in your first sentence."
-NEWS_BENCHING_MANDATE: str = "Sleeper medical status alone does not mean a player is starting. Always check `role_and_news` (`role_status`, `depth_chart_rank`, `supplanted_by`, `recent_news_headlines`). Never recommend picking up or starting a benched player based on historical points or static board tiers."
-PROVENANCE_CITATION_MANDATE: str = "Ground every claim in the provided `WorldStateSnapshot` and cite the corresponding `source_id`."
+PREMISE_VERIFICATION_MANDATE: str = "Never accept a user's premise about bye weeks, injuries, depth-chart starter status, or matchups at face value. Verify every premise against verified data first, and if the user's premise is false, correct it explicitly in your first sentence in plain language."
+NEWS_BENCHING_MANDATE: str = "Sleeper medical status alone does not mean a player is starting. Always check verified depth charts and news. Never recommend picking up or starting a benched player based on historical points or static board tiers."
+PROVENANCE_CITATION_MANDATE: str = "Ground every claim in verified data; all citation provenance is preserved in structured response fields for UI badges."
+

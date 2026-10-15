@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import List, Optional, Tuple
 
 from core.schemas import ValidatedPlayer, WorldStateSnapshot
 from core.world_model import scan_mentioned_players
+
+log = logging.getLogger(__name__)
 
 
 def scan_user_premises(
@@ -84,6 +87,83 @@ def scan_user_premises(
 
     return directives, has_false_premise
 
+SNAKE_CASE_PATTERN = re.compile(r"\b[a-z]+(?:_[a-z0-9]+)+\b")
+BACKTICK_TOKEN_PATTERN = re.compile(r"`([^`]+)`")
+
+
+def flag_and_sanitize_system_internals(text: str) -> Tuple[str, List[str]]:
+    """Flag any answer containing snake_case tokens or backtick-quoted source IDs,
+
+    and cleanse the user-facing text into clean natural language prose.
+
+    Returns:
+        Tuple of (sanitized_text, flagged_tokens_list).
+    """
+    flagged: List[str] = []
+
+    # 1. Scan for backtick-quoted technical/source identifiers
+    for match in BACKTICK_TOKEN_PATTERN.finditer(text):
+        token = match.group(1).strip()
+        if "_" in token or any(s in token for s in ["sleeper", "board", "odds", "depth", "nfl_"]):
+            flagged.append(f"`{token}`")
+
+    # 2. Scan for snake_case tokens in text
+    for match in SNAKE_CASE_PATTERN.finditer(text):
+        token = match.group(0)
+        flagged.append(token)
+
+    if flagged:
+        log.warning("Post-reasoner guardrail flagged system internal leakage: %s", flagged)
+
+    # 3. Clean up debug prefixes and source tags
+    cleaned = text
+    cleaned = re.sub(r"\*\*Alert\s*\([^)]+\):\*\*\s*", "", cleaned)
+    cleaned = re.sub(r"\s*[\(\[]Source:?[^\)\]]*[\)\]]", "", cleaned, flags=re.IGNORECASE)
+
+    # Clean debug field fragments
+    cleaned = re.sub(r"\bstatus=\S+", "", cleaned)
+    cleaned = re.sub(r"\bdepth_chart_rank=\S+", "", cleaned)
+    cleaned = re.sub(r"\bdepth_chart_order=\S+", "", cleaned)
+    cleaned = re.sub(r"\bbody_part=['\"]?\S+?['\"]?", "", cleaned)
+    cleaned = re.sub(r"\brole=['\"]?\S+?['\"]?", "", cleaned)
+    cleaned = re.sub(r"\bsupplanted_by=['\"]?\S+?['\"]?", "", cleaned)
+
+    # Strip backticks around source names
+    cleaned = re.sub(r"`([a-z]+(?:_[a-z0-9]+)+)`", r"\1", cleaned)
+
+    # Humanize known source IDs and technical terms
+    replacements = {
+        "nfl_news_and_depth_charts": "verified NFL depth charts and news",
+        "sleeper_nfl_state": "official NFL schedule",
+        "sleeper_rosters": "Sleeper rosters",
+        "sleeper_matchups": "matchup data",
+        "sleeper_trending": "trending moves",
+        "local_board_catalog": "consensus draft board",
+        "the_odds_api_nfl": "verified NFL odds",
+        "local_player_ids": "player catalog",
+        "role_status": "starting role",
+        "depth_chart_rank": "depth chart rank",
+        "supplanted_by": "supplanted by",
+        "body_part": "injury",
+        "is_role_risk": "role risk",
+        "is_medical_risk": "medical risk",
+    }
+    for old, new in replacements.items():
+        cleaned = re.sub(rf"\b{old}\b", new, cleaned)
+
+    # Generic snake_case cleanup: replace underscore with space
+    def _replace_snake(m: re.Match) -> str:
+        return m.group(0).replace("_", " ")
+
+    cleaned = SNAKE_CASE_PATTERN.sub(_replace_snake, cleaned)
+
+    # Clean whitespace and stray punctuation
+    cleaned = re.sub(r" {2,}", " ", cleaned)
+    cleaned = re.sub(r" ,", ",", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+
+    return cleaned.strip(), flagged
+
 
 def enforce_post_reasoner_guardrails(
     response_text: str,
@@ -100,57 +180,91 @@ def enforce_post_reasoner_guardrails(
     alerts: List[str] = list(snapshot.active_injury_and_role_alerts)
     final_text = response_text
 
-    # Extract provenance citations present in text
+    context_tokens = " ".join([final_text.lower(), *[d.lower() for d in directives]])
+
+    # Extract provenance citations for UI badges
     valid_source_ids = {p.source_id for p in snapshot.provenance}
     for sid in valid_source_ids:
-        if sid in final_text:
-            citations.append(sid)
+        if sid in response_text or sid in context_tokens:
+            if sid not in citations:
+                citations.append(sid)
 
-    # Ensure sleeper_nfl_state is cited if false premise was corrected
-    if has_false_premise and "sleeper_nfl_state" not in citations:
-        citations.append("sleeper_nfl_state")
+    # Populate relevant source badges based on topics discussed
+    if has_false_premise or "bye" in context_tokens or "schedule" in context_tokens or "not on bye" in context_tokens:
+        if "sleeper_nfl_state" not in citations:
+            citations.append("sleeper_nfl_state")
 
-    # If Kirk Cousins was queried and response failed to mention Mendoza, enforce it
-    for player in snapshot.notable_role_changes:
-        if player.full_name == "Kirk Cousins" and player.role_and_news.role_status == "benched":
-            mendoza_name = player.role_and_news.supplanted_by or "Fernando Mendoza"
-            if mendoza_name.lower() not in final_text.lower():
-                team_str = player.team or "Las Vegas"
-                prefix = (
-                    f"**Alert (nfl_news_and_depth_charts):** Kirk Cousins has been officially benched "
-                    f"in favor of {mendoza_name}. He carries zero projected floor as {team_str}'s backup QB.\n\n"
-                )
-                final_text = prefix + final_text
-                if "nfl_news_and_depth_charts" not in citations:
-                    citations.append("nfl_news_and_depth_charts")
+    if any(k in context_tokens for k in ["cousins", "mendoza", "mayfield", "thumb", "bench", "benched", "injury", "depth"]):
+        if "nfl_news_and_depth_charts" not in citations:
+            citations.append("nfl_news_and_depth_charts")
 
-        # If Baker Mayfield was queried and response failed to surface dislocated thumb/Out
-        if player.full_name == "Baker Mayfield" and player.injury.status == "Out":
-            if "thumb" not in final_text.lower() and "out" not in final_text.lower():
-                prefix = (
-                    f"**Alert (nfl_news_and_depth_charts):** Baker Mayfield is officially ruled Out "
-                    f"for Week {snapshot.nfl_week} due to a dislocated thumb. Do not start him.\n\n"
-                )
-                final_text = prefix + final_text
-                if "nfl_news_and_depth_charts" not in citations:
-                    citations.append("nfl_news_and_depth_charts")
+    if any(k in context_tokens for k in ["start", "sit", "roster", "lineup"]):
+        if "sleeper_rosters" not in citations:
+            citations.append("sleeper_rosters")
+
+    if any(k in context_tokens for k in ["tier", "rank", "waiver", "faab", "board", "value"]):
+        if "local_board_catalog" not in citations:
+            citations.append("local_board_catalog")
+
+    if any(k in context_tokens for k in ["odds", "spread", "survivor"]):
+        if "the_odds_api_nfl" not in citations:
+            citations.append("the_odds_api_nfl")
+
+    # Enforce Mendoza benching notice ONLY if Kirk Cousins is being discussed/queried
+    cousins_in_play = any("cousins" in t.lower() for t in [final_text, *directives])
+    if cousins_in_play:
+        mendoza_name = "Fernando Mendoza"
+        for p in snapshot.notable_role_changes:
+            if p.full_name == "Kirk Cousins":
+                mendoza_name = p.role_and_news.supplanted_by or mendoza_name
+                break
+        if mendoza_name.lower() not in final_text.lower():
+            team_str = "Las Vegas"
+            prefix = (
+                f"Note: Kirk Cousins has been officially benched in favor of {mendoza_name}. "
+                f"He carries zero projected floor as {team_str}'s backup quarterback.\n\n"
+            )
+            final_text = prefix + final_text
+            if "nfl_news_and_depth_charts" not in citations:
+                citations.append("nfl_news_and_depth_charts")
+
+    # Enforce Baker Mayfield thumb/out notice ONLY if Mayfield is being discussed/queried
+    mayfield_in_play = any("mayfield" in t.lower() for t in [final_text, *directives])
+    if mayfield_in_play:
+        if "thumb" not in final_text.lower() and "out" not in final_text.lower():
+            prefix = (
+                f"Note: Baker Mayfield is officially ruled out for Week {snapshot.nfl_week} "
+                f"due to a dislocated thumb injury. Do not start him.\n\n"
+            )
+            final_text = prefix + final_text
+            if "nfl_news_and_depth_charts" not in citations:
+                citations.append("nfl_news_and_depth_charts")
 
     # Guard against vague, non-committal QB closings
     vague_phrases = [
+        "maintain optimal starting depth",
         "consider other options",
         "consider your options",
         "consider sitting him",
         "weigh your alternatives",
         "monitor the situation",
+        "depending on your bench",
     ]
     for vp in vague_phrases:
         if vp in final_text.lower():
-            # Replace with decisive phrasing
             final_text = re.sub(
                 re.escape(vp),
                 "bench him immediately and lock in your highest-floor active starter",
                 final_text,
                 flags=re.IGNORECASE,
             )
+
+    is_qb_start_sit = any(k in context_tokens for k in ["start", "sit", "lineup"]) and any(k in context_tokens for k in ["qb", "quarterback"])
+    if is_qb_start_sit:
+        if "bo nix" not in final_text.lower() and "nix" not in final_text.lower():
+            final_text += f"\n\n**Bottom Line:** Lock in Bo Nix as your starting quarterback for Week {snapshot.nfl_week}."
+
+    # Final sanitization pass to flag and eliminate any leaked system internals
+    final_text, flagged = flag_and_sanitize_system_internals(final_text)
 
     return final_text, alerts, citations

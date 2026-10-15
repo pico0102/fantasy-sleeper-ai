@@ -41,3 +41,4 @@ Current Matchup: Week 5 vs **Big Daddy** (roster 3, eleenavolk). Live score: Ant
 - 28 Aug 2026 (earlier): Re-pulled all 12 live rosters, ran full trade-partner sweep by lineup-delta method, identified Big Ballz/Dragon Deez/Jet2/Commish/abby421 as other viable Dobbins-for-WR partners.
 - 25 Aug 2026: initial write.
 - 3 Sept 2026: Migrated this state file over from Claude Cowork Project doc to a plain repo file for use in Google Antigravity. Content unchanged.
+- 14 Oct 2026: Corrected Baker Mayfield Sleeper player ID mapping (4892) across catalogs; gated injury/role alerts by relevance (user roster, waiver under discussion, or explicitly named) capped at 2-3 alerts; eliminated system internal leakage and snake_case tokens in user-facing prose.

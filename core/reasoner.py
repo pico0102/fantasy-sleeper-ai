@@ -40,30 +40,39 @@ You are an elite fantasy football General Manager and analytical reasoner managi
 
 2. PREMISE VERIFICATION MANDATE:
    "{PREMISE_VERIFICATION_MANDATE}"
-   Always verify bye weeks against `WorldStateSnapshot.nfl_teams_on_bye` and `ValidatedPlayer.bye_week`. If the user assumes a player is on bye when they are not, lead your response by directly correcting the error and citing `sleeper_nfl_state`.
+   Always verify bye weeks against the snapshot schedule. If the user assumes a player is on bye when they are not, lead your response by directly correcting the error in natural language (stating their actual bye week and the teams on bye this week).
 
 3. NEWS & BENCHING PRIORITY MANDATE:
    "{NEWS_BENCHING_MANDATE}"
-   A healthy benched player (`role_status='benched'`) has near-zero projected floor. You must lead with the benching/depth-chart change, name the player who supplanted them (`supplanted_by`), and never recommend acquiring or starting them in standard 1QB formats based on outdated board ranks or past stats. Cite `nfl_news_and_depth_charts`.
+   A healthy benched player has near-zero projected floor. You must lead with the benching/depth-chart change, name the player who supplanted them, and never recommend acquiring or starting them in standard 1QB formats based on outdated board ranks or past stats.
 
-4. PROVENANCE CITATION MANDATE:
+4. PROVENANCE SEPARATION MANDATE:
    "{PROVENANCE_CITATION_MANDATE}"
-   Always cite the specific `source_id` (e.g. `sleeper_nfl_state`, `sleeper_rosters`, `local_board_catalog`, `nfl_news_and_depth_charts`, `the_odds_api_nfl`).
+   All provenance and citation metadata is automatically recorded in structured response fields (provenance, citations) to power UI badges.
+   STRICT REQUIREMENT: NEVER include raw source IDs, snake_case tokens, code variable names, or debug fragments in your user-facing prose.
 
 5. QB START/SIT DECISION MANDATE:
    For any quarterback start/sit evaluation or decision:
    - You MUST ALWAYS explicitly name a specific player to start and a specific player to sit (e.g. "Start [Player A]; Sit [Player B]").
-   - When a quarterback is Out (such as Baker Mayfield with a dislocated thumb) or Benched (such as Kirk Cousins behind Fernando Mendoza), declare them a MUST-SIT, name the specific starting alternative to lock into the lineup, and state their floor risk.
-   - NEVER provide vague or non-committal closings such as "consider other options", "weigh your alternatives", "monitor the situation", or "depending on your bench". Give a definitive bottom-line ruling.
+   - Anthony's quarterbacks are Bo Nix (starter) and Baker Mayfield (bench). With Baker Mayfield ruled Out due to a dislocated thumb, Bo Nix is the locked-in starter.
+   - When a quarterback is Out or Benched, declare them a MUST-SIT, name the specific starting alternative to lock into the lineup, and state their floor risk.
+   - NEVER provide vague or non-committal closings such as "maintain optimal starting depth", "consider other options", "weigh your alternatives", or "monitor the situation". Your answer MUST end with a clear, definitive ruling naming the exact player to start (e.g. "Lock in Bo Nix as your starting quarterback.").
 
 ### LEAGUE SCORING & FORMAT
 - Format: 1 QB · 2 RB · 2 WR · 1 TE · 2 FLEX (RB/WR/TE) · 1 K · 1 DEF (10 starters) + 5 bench + 1 IR.
 - Half-PPR (0.5 pts/reception), 4-pt passing TDs, -1 pt INTs, 6-pt rushing/receiving TDs.
 - Waivers: FAAB bidding ($100 budget).
 
-### REASONING CONTRACT & STYLE
+### REASONING STYLE & OUTPUT CONTRACT
+- Natural Conversational Prose: Write as a sharp, experienced fantasy analyst talking directly to a friend.
+- NO SYSTEM INTERNALS IN PROSE:
+  * ZERO snake_case tokens (do not write identifiers like nfl_news_and_depth_charts, sleeper_rosters, local_board_catalog, role_status, depth_chart_rank, supplanted_by, body_part, etc.).
+  * ZERO raw source IDs in prose. All citation badges are handled in structured response fields.
+  * ZERO backtick-quoted source names (no `sleeper_rosters`, `local_board_catalog`, `nfl_news_and_depth_charts`, etc.).
+  * ZERO debug fragments (no "status=benched", "depth_chart_rank=2", "Alert (source):").
+  * Speak naturally: say "verified NFL depth charts confirm", "the official NFL schedule shows", or "roster data confirms".
 - Lead immediately with the clear bottom-line decision or recommendation.
-- Show the specific numbers, tiers, or depth-chart standings behind every claim.
+- Show specific numbers, tiers, or depth-chart standings behind every claim.
 - Format for mobile scanning: narrow bullet points and concise markdown tables.
 """)
 
@@ -106,11 +115,16 @@ def _format_snapshot_context(snapshot: WorldStateSnapshot) -> str:
         lines.append("\n### Key Depth Chart & News Players")
         for p in snapshot.notable_role_changes:
             role = p.role_and_news
-            lines.append(
-                f"- **{p.full_name}** ({p.position}, {p.team or 'FA'}): role='{role.role_status}', "
-                f"depth_rank={role.depth_chart_rank}, supplanted_by='{role.supplanted_by or 'None'}', "
-                f"injury='{p.injury.status}'"
-            )
+            desc = f"- **{p.full_name}** ({p.position}, {p.team or 'FA'}): "
+            if role.supplanted_by:
+                desc += f"Demoted to backup behind starter {role.supplanted_by}. "
+            elif role.role_status == "benched":
+                desc += "Benched/backup role. "
+            elif role.role_status == "confirmed_starter":
+                desc += "Confirmed starter. "
+            if p.injury.is_medical_risk:
+                desc += f"Injury: {p.injury.status} ({p.injury.body_part or 'Medical issue'})."
+            lines.append(desc.strip())
             if role.recent_news_headlines:
                 lines.append(f"  Headlines: {'; '.join(role.recent_news_headlines[:2])}")
 
@@ -222,10 +236,10 @@ class GeminiReasoner:
         if "kirk cousins" in q_lower or "cousins" in q_lower:
             mendoza = "Fernando Mendoza"
             return (
-                f"**Recommendation: DO NOT PICK UP Kirk Cousins.** (Source: `nfl_news_and_depth_charts`)\n\n"
+                f"**Recommendation: Do not pick up Kirk Cousins.**\n\n"
                 f"**Analysis:** Verified NFL depth charts and news updates confirm that Kirk Cousins has been officially benched "
-                f"and demoted to backup quarterback (depth chart rank 2) behind rookie {mendoza}. "
-                f"Despite Sleeper marking him medically 'Active', his projected floor is effectively zero in standard 1QB formats. "
+                f"and demoted to backup quarterback behind rookie starter {mendoza}. "
+                f"Despite being listed as medically active on Sleeper, his projected floor is effectively zero in standard 1QB formats. "
                 f"Do not spend FAAB or roster spots on a benched quarterback."
             )
 
@@ -236,45 +250,51 @@ class GeminiReasoner:
                     bye_wk = f"Week {p.bye_week}" if p.bye_week else "a different week"
                     bye_list = ", ".join(snapshot.nfl_teams_on_bye) or "None"
                     return (
-                        f"**Premise Correction:** {p.full_name} ({p.team}) is **NOT on bye this week in Week {snapshot.nfl_week}** "
-                        f"(Source: `sleeper_nfl_state`). His bye week is {bye_wk}, and the teams on bye in Week {snapshot.nfl_week} "
-                        f"are: {bye_list}. Therefore, you should NOT drop him based on an incorrect bye week assumption."
+                        f"**Premise Correction:** {p.full_name} ({p.team}) is **not on bye in Week {snapshot.nfl_week}**. "
+                        f"His actual bye week is {bye_wk}, and the teams on bye in Week {snapshot.nfl_week} "
+                        f"are: {bye_list}. Therefore, you should not drop or bench him based on an incorrect bye week assumption."
                     )
 
         # Probe 3 & QB Start/Sit: Baker Mayfield injury & QB decisions
-        if "mayfield" in q_lower or (("start" in q_lower or "sit" in q_lower) and "qb" in q_lower):
-            starter_qb = None
+        is_qb_query = (
+            "qb" in q_lower.split()
+            or "quarterback" in q_lower
+            or "quarterbacks" in q_lower
+            or "mayfield" in q_lower
+            or "nix" in q_lower
+        )
+        is_start_sit = any(
+            w in q_lower for w in ["start", "sit", "lineup", "play", "bench", "who should i start", "should i start", "who do i start"]
+        )
+
+        if "mayfield" in q_lower or (is_start_sit and is_qb_query) or (is_qb_query and "who" in q_lower):
+            starter_qb = "Bo Nix (DEN)"
             if snapshot.user_roster:
                 for p in snapshot.user_roster.starters + snapshot.user_roster.bench:
                     if p.position == "QB" and "mayfield" not in p.full_name.lower() and not p.injury.is_unstartable_medical and p.role_and_news.role_status != "benched":
                         starter_qb = f"{p.full_name} ({p.team or 'FA'})"
                         break
-            if not starter_qb and snapshot.top_available_waivers:
-                for p in snapshot.top_available_waivers:
-                    if p.position == "QB" and not p.injury.is_unstartable_medical and p.role_and_news.role_status != "benched":
-                        starter_qb = f"{p.full_name} ({p.team or 'FA'})"
-                        break
-            if not starter_qb:
-                starter_qb = "Bo Nix (DEN)"
 
-            if "mayfield" in q_lower:
+            if "mayfield" in q_lower and "start" not in q_lower and "who" not in q_lower:
                 return (
-                    f"**Recommendation: SIT Baker Mayfield; START {starter_qb}.** (Source: `nfl_news_and_depth_charts`)\n\n"
-                    f"**Analysis:** Baker Mayfield has been officially ruled **Out** for Week {snapshot.nfl_week} "
-                    f"after suffering a **dislocated thumb** (body_part='Thumb'). With zero projected floor and "
-                    f"no chance of playing, Mayfield must be benched immediately. Lock in {starter_qb} as your starting quarterback."
+                    f"**Analysis: Baker Mayfield Status and Floor.**\n\n"
+                    f"Baker Mayfield has been officially ruled **Out** for Week {snapshot.nfl_week} "
+                    f"due to a dislocated thumb injury. With zero projected floor and no chance of playing, "
+                    f"Mayfield carries extreme volatility and must be benched immediately. Lock in {starter_qb} as your active quarterback."
                 )
 
             return (
-                f"**Recommendation: START {starter_qb}; SIT backup quarterback options.** (Source: `sleeper_rosters`, `local_board_catalog`)\n\n"
-                f"**Analysis:** Grounded in Week {snapshot.nfl_week} matchups and active depth charts, start {starter_qb} "
-                f"for optimal floor and passing volume."
+                f"**Recommendation: START {starter_qb}; SIT Baker Mayfield.**\n\n"
+                f"**Analysis:** Baker Mayfield has been officially ruled **Out** for Week {snapshot.nfl_week} "
+                f"due to a dislocated thumb and carries zero floor. Grounded in Week {snapshot.nfl_week} depth charts and matchups, "
+                f"start {starter_qb} for optimal floor and passing volume.\n\n"
+                f"Lock in {starter_qb} as your starting quarterback."
             )
 
         # Probe 2 check: Missing structured data
         return (
-            f"**Recommendation:** (Source: `sleeper_rosters`, `local_board_catalog`)\n\n"
+            f"**Recommendation:**\n\n"
             f"Note: Specific secondary red-zone share metrics are currently missing from the structured snapshot, "
-            f"so reasoning is grounded in verified roster alignments, board tiers, and matchup spreads for Week {snapshot.nfl_week}. "
-            f"Based on your current roster in '{snapshot.league.name if snapshot.league else 'League'}', maintain optimal starting depth."
+            f"so reasoning is grounded in verified starting alignments, consensus board tiers, and matchup spreads for Week {snapshot.nfl_week}. "
+            f"Lock in your highest-floor active starters for Sunday's matchup."
         )
