@@ -296,16 +296,16 @@ Execute Phases 0 through 6 sequentially without pausing for human confirmation. 
   - Commit message: `feat(reasoner-survivor): implement Gemini 3.8 Flash reasoner, guardrails, and fail-closed survivor engine`
 
 ### Phase 5: FastAPI Endpoints, Deep `/health` (with Odds API) & Mobile UI
-- [ ] **5.1 Refactor `main.py`:**
+- [x] **5.1 Refactor `main.py`:**
   - `GET /health`: Check and report detailed status, timestamps, and record counts for all 6 subsystems: `player_ids_catalog`, `board_catalog` (including bias audit status), `sleeper_api`, `news_depth_chart_feed`, `odds_api`, and `gemini_reasoner`, plus `canonical_nfl_week`.
   - `POST /api/chat`: Support both Fantasy GM mode and Survivor toggle mode (`mode: "fantasy" | "survivor"`), returning `ChatResponse` with full `provenance`, `injury_alerts`, `citations`, and `snapshot_id`.
   - `POST /api/survivor` & `POST /api/survivor/email-preview`: Expose explicit survivor evaluation and weekly email preview endpoints powered by `SurvivorEngine`.
   - `GET /api/world-state`: Return current session `WorldStateSnapshot` summary and provenance records.
-- [ ] **5.2 Update Mobile-First UI (`static/` or inline template):**
+- [x] **5.2 Update Mobile-First UI (`static/` or inline template):**
   - Keep responsive Tailwind CSS + `marked.js` interface.
   - Wire the **Survivor Mode Toggle** directly to the unified survivor engine path.
   - Render inspectable **Provenance Badges** (showing source, timestamp, status), **Injury & Benching Risk Alerts**, and live `/health` subsystem indicators (including Odds API and News feed status).
-- [ ] **5.3 Verify & Commit Phase 5:**
+- [x] **5.3 Verify & Commit Phase 5:**
   - Verify all routes mount and respond cleanly.
   - Commit message: `feat(api-ui): register odds_api in /health and wire unified survivor and provenance UI`
 
