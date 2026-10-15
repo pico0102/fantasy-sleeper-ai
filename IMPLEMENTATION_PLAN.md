@@ -267,12 +267,12 @@ Execute Phases 0 through 6 sequentially without pausing for human confirmation. 
   - Commit message: `feat(pipeline): add Sleeper client, news/depth-chart pipeline, and Odds API ingestion`
 
 ### Phase 3: Unified Session `WorldStateSnapshot` Builder
-- [ ] **3.1 Implement `core/world_model.py`:**
+- [x] **3.1 Implement `core/world_model.py`:**
   - Assemble immutable `WorldStateSnapshot` combining single-sourced `nfl_week`, league rosters/matchups, `board_audit_summary`, hydrated `InjuryContext` + `RoleAndNewsContext`, `notable_role_changes` (including query-mentioned player lookup from `player_ids.json`), `current_week_odds`, and all `ProvenanceRecord` entries.
   - Compute deterministic 16-char SHA-256 `snapshot_id` and cache per session.
-- [ ] **3.2 Create `tests/test_world_model.py`:**
+- [x] **3.2 Create `tests/test_world_model.py`:**
   - Verify snapshot determinism, query-entity hydration (ensuring unrostered players like Kirk Cousins are hydrated into the snapshot when asked about), and provenance aggregation.
-- [ ] **3.3 Verify & Commit Phase 3:**
+- [x] **3.3 Verify & Commit Phase 3:**
   - Run `pytest tests/test_world_model.py`.
   - Commit message: `feat(world-model): assemble unified WorldStateSnapshot with news, odds, and provenance`
 
