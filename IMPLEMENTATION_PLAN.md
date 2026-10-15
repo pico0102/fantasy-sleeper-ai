@@ -253,16 +253,16 @@ Execute Phases 0 through 6 sequentially without pausing for human confirmation. 
   - Commit message: `feat(core): add Pydantic v2 schemas, canonical week resolver, and board bias auditor`
 
 ### Phase 2: Data Plumbing, News/Depth-Chart Pipeline & Odds API Client
-- [ ] **2.1 Implement `core/data_pipeline.py`:**
+- [x] **2.1 Implement `core/data_pipeline.py`:**
   - Validated loaders for `player_ids.json` and `board.json` (piped through `board_auditor`).
   - `SleeperClient` with TTL cache and `ProvenanceRecord` generation for NFL state, league, rosters, matchups (using `resolve_canonical_nfl_week`), and trending players.
   - `OddsAPIClient` fetching live NFL spreads/moneylines from The Odds API (`ODDS_API_KEY`) with full provenance (`source_id="the_odds_api_nfl"`, timestamp, status) and explicit `missing_key` / `failed` states.
-- [ ] **2.2 Implement `core/news_pipeline.py` & `news_depth_overrides.json`:**
+- [x] **2.2 Implement `core/news_pipeline.py` & `news_depth_overrides.json`:**
   - Implement depth-chart order, starter/benched role status, `supplanted_by`, and news headline ingestion (`source_id="nfl_news_and_depth_charts"`).
   - Seed/validate baseline transaction & depth-chart records (including Kirk Cousins benched (`role_status="benched"`, `depth_chart_rank=2`, `supplanted_by="Fernando Mendoza"`) and Baker Mayfield injury context) merged with live feed updates.
-- [ ] **2.3 Remove Legacy v1 Rules Engine:**
+- [x] **2.3 Remove Legacy v1 Rules Engine:**
   - Remove all v1 static trade calculators, positional multipliers, and regex intent routers.
-- [ ] **2.4 Verify & Commit Phase 2:**
+- [x] **2.4 Verify & Commit Phase 2:**
   - Run `pytest`.
   - Commit message: `feat(pipeline): add Sleeper client, news/depth-chart pipeline, and Odds API ingestion`
 

@@ -1,0 +1,56 @@
+{
+  "Kirk Cousins": {
+    "player_id": "1167",
+    "full_name": "Kirk Cousins",
+    "position": "QB",
+    "team": "ATL",
+    "depth_chart_position": "QB",
+    "depth_chart_rank": 2,
+    "role_status": "benched",
+    "supplanted_by": "Fernando Mendoza",
+    "recent_news_headlines": [
+      "Falcons bench Kirk Cousins; rookie Fernando Mendoza named starting QB for Week 6",
+      "Coaching staff confirms Kirk Cousins demoted to backup QB role behind Mendoza",
+      "Kirk Cousins role reduced: Atlanta turns offense over to Fernando Mendoza"
+    ],
+    "news_summary": "Kirk Cousins has been benched in favor of Fernando Mendoza and relegated to backup quarterback duties.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Baker Mayfield": {
+    "player_id": "4881",
+    "full_name": "Baker Mayfield",
+    "position": "QB",
+    "team": "TB",
+    "depth_chart_position": "QB",
+    "depth_chart_rank": 1,
+    "role_status": "confirmed_starter",
+    "injury": {
+      "status": "Questionable",
+      "body_part": "Right Shoulder",
+      "practice_status": "Limited",
+      "injury_notes": "Baker Mayfield was limited in practice due to a right shoulder strain, clouding his floor and passing volume."
+    },
+    "recent_news_headlines": [
+      "Baker Mayfield (shoulder) limited in practice ahead of Week 6 matchup",
+      "Mayfield pushing through shoulder strain; Buccaneers monitoring throwing velocity",
+      "Tampa Bay OC notes gameplan adjustments if Mayfield's shoulder limits deep ball"
+    ],
+    "news_summary": "Baker Mayfield is dealing with a right shoulder strain that limited his practice participation, introducing floor volatility for Tampa Bay's offense.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Fernando Mendoza": {
+    "player_id": "12999",
+    "full_name": "Fernando Mendoza",
+    "position": "QB",
+    "team": "ATL",
+    "depth_chart_position": "QB",
+    "depth_chart_rank": 1,
+    "role_status": "confirmed_starter",
+    "recent_news_headlines": [
+      "Fernando Mendoza named Falcons starting QB ahead of Week 6",
+      "Atlanta turns to rookie Fernando Mendoza to inject life into passing offense"
+    ],
+    "news_summary": "Rookie Fernando Mendoza takes over as Atlanta's starting quarterback.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  }
+}
