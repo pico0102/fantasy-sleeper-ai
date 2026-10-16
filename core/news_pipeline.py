@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.board_auditor import normalize_player_name
 from core.config import NEWS_CACHE_TTL, NEWS_DEPTH_OVERRIDES_PATH, SKILL_DATA_DIR
 from core.exceptions import UpstreamSourceError
 from core.provenance import build_provenance_record
@@ -131,8 +132,8 @@ def check_override_sleeper_conflicts(
     ov_status = ov_inj.get("status") if isinstance(ov_inj, dict) else None
     sl_status = sleeper_data.get("injury_status") or "Active"
     if ov_status:
-        norm_ov_status = ov_status.strip().title()
-        norm_sl_status = sl_status.strip().title() if sl_status else "Active"
+        norm_ov_status = ov_status.strip().upper() if ov_status.strip().upper() in {"IR", "PUP", "COV"} else ov_status.strip().title()
+        norm_sl_status = sl_status.strip().upper() if sl_status.strip().upper() in {"IR", "PUP", "COV"} else sl_status.strip().title()
         if norm_ov_status != norm_sl_status:
             conflicts.append(
                 f"[CONFLICT: INJURY_STATUS] {name}: override status '{norm_ov_status}' conflicts with Sleeper status '{norm_sl_status}'"
@@ -178,16 +179,127 @@ def check_all_override_conflicts(
             by_id[str(pid)] = pdata
             fname = pdata.get("full_name") or f"{pdata.get('first_name', '')} {pdata.get('last_name', '')}".strip()
             if fname:
-                by_name[fname.lower()] = pdata
+                by_name[normalize_player_name(fname)] = pdata
 
     for key_name, entry in overrides.items():
         pid = str(entry.get("player_id", ""))
-        sl_player = by_id.get(pid) or by_name.get(key_name.lower()) or by_name.get(entry.get("full_name", "").lower())
+        alt_pid = str(entry.get("sleeper_alt_id", ""))
+        sl_player = (
+            (by_id.get(alt_pid) if alt_pid else None)
+            or by_id.get(pid)
+            or by_name.get(normalize_player_name(key_name))
+            or by_name.get(normalize_player_name(entry.get("full_name", "")))
+        )
         if sl_player:
             c = check_override_sleeper_conflicts(key_name, entry, sl_player)
             all_conflicts.extend(c)
 
     return all_conflicts
+
+
+def run_startup_catalog_sanity_check(
+    player_ids_map: Optional[Dict[str, str]] = None,
+    board_data: Optional[List[Dict[str, Any]]] = None,
+    board_summary: Optional[Dict[str, Any]] = None,
+    news_feed: Optional[Dict[str, Dict[str, Any]]] = None,
+    sleeper_players_db: Optional[Dict[str, Any]] = None,
+    sleeper_players: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Run startup sanity checks across seeded catalogs and overrides.
+
+    Detects:
+    - Duplicate player name mappings in player_ids.json (which could bypass roster filters).
+    - Board catalog entries lacking explicit injury metadata (requiring override/live hydration).
+    - Board catalog entries unmapped in player_ids.json.
+    - Override entries lacking injury metadata.
+    - Conflicts between news_depth_overrides.json and Sleeper metadata.
+    """
+    from core.data_pipeline import load_board_catalog, load_player_ids_catalog
+
+    if player_ids_map is None:
+        player_ids_map, _ = load_player_ids_catalog()
+    if board_data is None or board_summary is None:
+        board_data, board_summary, _ = load_board_catalog()
+    if news_feed is None:
+        news_feed, _ = load_news_and_depth_chart()
+    sl_db = sleeper_players_db if sleeper_players_db is not None else (sleeper_players or {})
+
+    # 1. Check duplicate normalized player names in player_ids.json
+    seen_names: Dict[str, str] = {}
+    duplicate_name_mappings: List[str] = []
+    for pid, name in player_ids_map.items():
+        norm = normalize_player_name(name)
+        if norm in seen_names and seen_names[norm] != pid:
+            duplicate_name_mappings.append(
+                f"Duplicate name '{name}' mapped to multiple IDs: {seen_names[norm]} and {pid}"
+            )
+        seen_names[norm] = pid
+
+    # 2. Check board entries for missing injury metadata and unmapped IDs
+    board_missing_injury_count = int(board_summary.get("entries_missing_injury_metadata", 0))
+    unmapped_board_entries: List[str] = []
+    board_overridden_injuries: List[str] = []
+
+    norm_overrides = {normalize_player_name(k): v for k, v in news_feed.items()}
+    for b in board_data:
+        b_name = b.get("name", "")
+        norm_b = normalize_player_name(b_name)
+        if norm_b not in seen_names:
+            unmapped_board_entries.append(b_name)
+        if norm_b in norm_overrides:
+            ov = norm_overrides[norm_b]
+            inj_status = (ov.get("injury") or {}).get("status", "Active")
+            role_status = ov.get("role_status", "unknown")
+            if inj_status != "Active" or role_status == "benched":
+                board_overridden_injuries.append(f"{b_name} ({inj_status}, {role_status})")
+
+    # 3. Check override entries for missing injury metadata
+    overrides_missing_injury: List[str] = []
+    for key_name, entry in news_feed.items():
+        if not isinstance(entry.get("injury"), dict) or "status" not in entry.get("injury", {}):
+            overrides_missing_injury.append(key_name)
+
+    # 4. Cross-check overrides against Sleeper DB if provided
+    override_conflicts = check_all_override_conflicts(news_feed, sl_db)
+
+    warnings: List[str] = []
+    if duplicate_name_mappings:
+        warnings.extend(duplicate_name_mappings)
+    if unmapped_board_entries:
+        warnings.append(f"Unmapped board entries: {unmapped_board_entries}")
+    if overrides_missing_injury:
+        warnings.append(f"Overrides missing injury metadata: {overrides_missing_injury}")
+    if board_missing_injury_count > 0:
+        warnings.append(
+            f"[CATALOG NOTICE] {board_missing_injury_count}/{len(board_data)} static board.json entries lack inline injury metadata; "
+            f"enforcing runtime hydration against news_depth_overrides ({len(board_overridden_injuries)} flagged) and live Sleeper player state."
+        )
+    if override_conflicts:
+        warnings.extend(override_conflicts)
+
+    passed = (
+        len(duplicate_name_mappings) == 0
+        and len(unmapped_board_entries) == 0
+        and len(overrides_missing_injury) == 0
+    )
+    return {
+        "status": "ok" if passed else "degraded",
+        "sanity_check_passed": passed,
+        "duplicate_name_mappings": duplicate_name_mappings,
+        "duplicate_player_id_names": duplicate_name_mappings,
+        "duplicate_player_id_names_count": len(duplicate_name_mappings),
+        "unmapped_board_entries": unmapped_board_entries,
+        "unmapped_board_players": unmapped_board_entries,
+        "unmapped_board_players_count": len(unmapped_board_entries),
+        "board_entries_missing_injury_metadata": board_missing_injury_count,
+        "board_entries_missing_injury_metadata_count": board_missing_injury_count,
+        "board_overridden_injuries_flagged": board_overridden_injuries,
+        "overrides_missing_injury_metadata": overrides_missing_injury,
+        "overrides_missing_injury_metadata_count": len(overrides_missing_injury),
+        "override_sleeper_conflicts": override_conflicts,
+        "sleeper_override_conflicts_count": len(override_conflicts),
+        "warnings": warnings,
+    }
 
 
 def hydrate_player_role_and_news(
@@ -204,12 +316,16 @@ def hydrate_player_role_and_news(
     if feed is None:
         feed, _ = load_news_and_depth_chart()
 
-    # Case-insensitive lookup in feed
+    # Normalized case-insensitive and suffix-insensitive lookup in feed
     matched_entry: Optional[Dict[str, Any]] = None
-    target_norm = player_name.strip().lower()
+    target_norm = normalize_player_name(player_name)
+    sl_pid = str(sleeper_player_dict.get("player_id", "")) if isinstance(sleeper_player_dict, dict) else ""
 
     for name_key, entry in feed.items():
-        if name_key.strip().lower() == target_norm:
+        if normalize_player_name(name_key) == target_norm or normalize_player_name(entry.get("full_name", "")) == target_norm:
+            matched_entry = entry
+            break
+        if sl_pid and sl_pid in {str(entry.get("player_id", "")), str(entry.get("sleeper_alt_id", ""))}:
             matched_entry = entry
             break
 
@@ -247,7 +363,7 @@ def hydrate_player_role_and_news(
             role_status=role_status,
             recent_news_headlines=[],
             news_summary=sleeper_player_dict.get("injury_notes"),
-            last_news_updated_utc=sleeper_player_dict.get("news_updated"),
+            last_news_updated_utc=str(sleeper_player_dict.get("news_updated")) if sleeper_player_dict.get("news_updated") is not None else None,
         )
         return role_ctx, None
 
@@ -277,3 +393,4 @@ def get_notable_role_players(
         players.append(player)
 
     return players
+

@@ -41,7 +41,7 @@ from core.data_pipeline import (
     load_board_catalog,
     load_player_ids_catalog,
 )
-from core.news_pipeline import load_news_and_depth_chart
+from core.news_pipeline import load_news_and_depth_chart, run_startup_catalog_sanity_check
 from core.provenance import build_provenance_record
 from core.reasoner import GeminiReasoner
 from core.schemas import (
@@ -201,10 +201,21 @@ async def build_context(question: str) -> Tuple[str, dict]:
 async def lifespan(app: FastAPI):
     log.info("🏈 Initializing fantasy-sleeper-ai v2 service...")
     try:
-        load_player_ids_catalog()
-        load_board_catalog()
-        load_news_and_depth_chart()
-        log.info("✅ Local catalogs and news feeds warmed successfully")
+        pids_map, _ = load_player_ids_catalog()
+        board_data, _, _ = load_board_catalog()
+        news_data, _ = load_news_and_depth_chart()
+        sanity = run_startup_catalog_sanity_check(
+            player_ids_map=pids_map,
+            board_data=board_data,
+            news_feed=news_data,
+            sleeper_players=get_all_players_sync(),
+        )
+        log.info(
+            "✅ Local catalogs and news feeds warmed successfully (sanity=%s, dup_ids=%d, unmapped_board=%d)",
+            sanity["status"],
+            sanity["duplicate_player_id_names_count"],
+            sanity["unmapped_board_players_count"],
+        )
     except Exception as e:
         log.warning("⚠️ Failed warming catalogs on startup: %s", e)
     yield
@@ -248,6 +259,8 @@ class FlexibleChatRequest(BaseModel):
             return "survivor"
         if self.league_context and self.league_context.lower() == "survivor":
             return "survivor"
+        if "survivor" in self.get_prompt_text().lower():
+            return "survivor"
         return "fantasy"
 
 
@@ -272,9 +285,13 @@ class UnifiedChatResponse(BaseModel):
 
 @app.get("/health", tags=["Monitoring"])
 async def health():
-    """Deep health check across all 6 subsystems with canonical NFL week."""
+    """Deep health check across all 6 subsystems with canonical NFL week and catalog sanity."""
     subsystems: Dict[str, Any] = {}
     overall_status = "ok"
+
+    pids: Dict[str, str] = {}
+    board: List[Dict[str, Any]] = []
+    news_data: Dict[str, Any] = {}
 
     # 1. Player IDs catalog
     try:
@@ -297,6 +314,7 @@ async def health():
             "bias_status": board_summary.get("bias_status", "clean"),
             "audit_passed": board_summary.get("audit_passed", True),
             "multipliers_stripped": board_summary.get("synthetic_multipliers_detected", 0),
+            "catalog_injury_metadata_missing": board_summary.get("catalog_injury_metadata_missing", True),
         }
     except Exception as e:
         subsystems["board_catalog"] = {"status": "failed", "error": str(e)}
@@ -317,13 +335,22 @@ async def health():
         subsystems["sleeper_api"] = {"status": "failed", "error": str(e)}
         overall_status = "degraded"
 
-    # 4. News & Depth-Chart feed
+    # 4. News & Depth-Chart feed + Catalog Sanity Check
     try:
         news_data, news_prov = load_news_and_depth_chart()
+        sanity = run_startup_catalog_sanity_check(
+            player_ids_map=pids,
+            board_data=board,
+            news_feed=news_data,
+            sleeper_players=get_all_players_sync(),
+        )
         subsystems["news_depth_chart_feed"] = {
             "status": news_prov.status,
             "record_count": news_prov.record_count,
             "fetched_at_utc": news_prov.fetched_at_utc,
+            "sanity_status": sanity["status"],
+            "duplicate_player_id_names_count": sanity["duplicate_player_id_names_count"],
+            "overrides_missing_injury_metadata_count": sanity["overrides_missing_injury_metadata_count"],
         }
     except Exception as e:
         subsystems["news_depth_chart_feed"] = {"status": "failed", "error": str(e)}
@@ -428,7 +455,9 @@ async def chat(req: FlexibleChatRequest):
 
     if mode == "survivor":
         survivor_used = list(dict.fromkeys([*ANTHONY_SURVIVOR_USED_TEAMS, *(req.used_teams or [])]))
-        survivor_res = _survivor_engine.evaluate_week(snapshot, used_teams=survivor_used)
+        survivor_res = _survivor_engine.evaluate_week(
+            snapshot, used_teams=survivor_used, query=prompt_text
+        )
         latency = int((time.time() - start_t) * 1000)
         return UnifiedChatResponse(
             response=survivor_res.reasoning_markdown,

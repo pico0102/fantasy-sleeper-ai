@@ -407,6 +407,60 @@ class SleeperClient:
         _SLEEPER_CACHE[cache_key] = {"data": data, "ts": now}
         return data
 
+    async def fetch_player_metadata(
+        self, player_id: str, force_refresh: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch single player metadata (/v1/players/nfl/{id}) with TTL cache."""
+        pid = str(player_id).strip()
+        if not pid or not pid.isdigit():
+            return None
+
+        cache_key = f"player_meta_{pid}"
+        now = datetime.now(timezone.utc).timestamp()
+        cached = _SLEEPER_CACHE.get(cache_key)
+        if not force_refresh and cached and (now - cached["ts"]) < 3600:
+            return cached["data"]
+
+        endpoint = f"{self.base_url}/players/nfl/{pid}"
+        try:
+            client = await self._get_client()
+            resp = await client.get(endpoint, timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, dict):
+                    _SLEEPER_CACHE[cache_key] = {"data": data, "ts": now}
+                    return data
+        except Exception as e:
+            log.debug("Single-player fetch for %s skipped: %s", pid, e)
+        return None
+
+    async def fetch_players_batch(
+        self, player_ids: List[str], force_refresh: bool = False
+    ) -> Dict[str, Dict[str, Any]]:
+        """Fetch metadata for a bounded list of player IDs concurrently."""
+        import asyncio
+
+        unique_pids = [str(p).strip() for p in dict.fromkeys(player_ids) if str(p).strip().isdigit()]
+        if not unique_pids:
+            return {}
+
+        sem = asyncio.Semaphore(12)
+
+        async def _fetch_one(pid: str) -> Tuple[str, Optional[Dict[str, Any]]]:
+            async with sem:
+                meta = await self.fetch_player_metadata(pid, force_refresh=force_refresh)
+                return pid, meta
+
+        results = await asyncio.gather(*[_fetch_one(p) for p in unique_pids], return_exceptions=True)
+        out: Dict[str, Dict[str, Any]] = {}
+        for res in results:
+            if isinstance(res, tuple):
+                pid, meta = res
+                if isinstance(meta, dict):
+                    out[pid] = meta
+        return out
+
+
 
 # ── The Odds API Client ────────────────────────────────────────────────────
 

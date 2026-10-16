@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+import re
+import unicodedata
+from typing import Any, Dict, List, Optional, Set, Tuple
 from core.exceptions import DataValidationError
 
 # Known synthetic fields from v1 heuristic rules engine
@@ -18,6 +20,25 @@ SYNTHETIC_BIAS_KEYS = {
     "v1_weight",
     "synthetic_weight",
 }
+
+PLAYER_NAME_ALIASES: Dict[str, str] = {
+    "kenneth gainwell": "kenny gainwell",
+}
+
+
+def normalize_player_name(name: str) -> str:
+    """Normalize a player name for canonical cross-catalog matching.
+
+    Strips accents, periods, generational suffixes (Jr., Sr., II, III, IV),
+    and extra whitespace, and resolves known spelling aliases.
+    """
+    if not name:
+        return ""
+    n = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode()
+    n = n.replace(".", "")
+    n = re.sub(r"\b(jr|sr|ii|iii|iv|v)\b", "", n.lower())
+    cleaned = " ".join(re.sub(r"[^a-z0-9 ]", " ", n).split())
+    return PLAYER_NAME_ALIASES.get(cleaned, cleaned)
 
 
 def compute_tier(overall_rank: int) -> int:
@@ -36,7 +57,8 @@ def compute_tier(overall_rank: int) -> int:
 def audit_and_sanitize_board(
     raw_board: List[Dict[str, Any]]
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    """Inspect and strip v1 positional multipliers or synthetic weight biases.
+    """Inspect and strip v1 positional multipliers or synthetic weight biases,
+    and flag entries lacking explicit injury metadata.
 
     Args:
         raw_board: Raw list of player records loaded from board.json.
@@ -52,6 +74,7 @@ def audit_and_sanitize_board(
 
     sanitized: List[Dict[str, Any]] = []
     synthetic_multipliers_detected = 0
+    entries_missing_injury_metadata = 0
     stripped_keys_found = set()
     tier_distribution: Dict[str, Dict[str, int]] = {
         f"Tier {t}": {"RB": 0, "WR": 0, "QB": 0, "TE": 0, "OTHER": 0}
@@ -75,6 +98,10 @@ def audit_and_sanitize_board(
 
         if has_bias_field:
             synthetic_multipliers_detected += 1
+
+        # Check whether catalog entry carries explicit injury metadata
+        if "injury_status" not in entry and "injury" not in entry:
+            entries_missing_injury_metadata += 1
 
         name = entry.get("name")
         pos = entry.get("pos", "OTHER")
@@ -102,6 +129,9 @@ def audit_and_sanitize_board(
         "total_players_audited": len(sanitized),
         "synthetic_multipliers_detected": synthetic_multipliers_detected,
         "synthetic_fields_stripped": sorted(list(stripped_keys_found)),
+        "entries_missing_injury_metadata": entries_missing_injury_metadata,
+        "catalog_injury_metadata_missing": entries_missing_injury_metadata > 0,
+        "requires_live_or_override_injury_hydration": entries_missing_injury_metadata > 0,
         "bias_status": "adjusted" if synthetic_multipliers_detected > 0 else "clean",
         "position_counts": pos_counts,
         "tier_distribution": tier_distribution,
@@ -109,3 +139,4 @@ def audit_and_sanitize_board(
     }
 
     return sanitized, summary
+

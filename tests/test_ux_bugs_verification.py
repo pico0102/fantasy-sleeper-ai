@@ -118,7 +118,7 @@ async def test_repro_questions_return_named_players_with_zero_fallback():
         ("Who should I start at wide receiver this week?", ["Davante Adams", "Jakobi Meyers"]),
         ("Who should I start at running back this week?", ["Christian McCaffrey", "Bucky Irving"]),
         ("Is Davante Adams a good start this week?", ["Davante Adams"]),
-        ("Give me waiver wire targets", ["De'Von Achane"]),
+        ("Give me waiver wire targets", ["Dallas Goedert", "Jake Ferguson"]),
         ("help with my lineup", ["Bo Nix", "Christian McCaffrey", "Davante Adams"]),
     ]
 

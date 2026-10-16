@@ -1,6 +1,7 @@
 {
   "Kirk Cousins": {
     "player_id": "1167",
+    "sleeper_alt_id": "1166",
     "full_name": "Kirk Cousins",
     "position": "QB",
     "team": "LV",
@@ -8,6 +9,12 @@
     "depth_chart_rank": 2,
     "role_status": "benched",
     "supplanted_by": "Fernando Mendoza",
+    "injury": {
+      "status": "Active",
+      "body_part": null,
+      "practice_status": "Full",
+      "injury_notes": "Medically active; benched behind starter Fernando Mendoza."
+    },
     "recent_news_headlines": [
       "Raiders bench Kirk Cousins; rookie Fernando Mendoza named starting QB for Week 6",
       "Coaching staff confirms Kirk Cousins demoted to backup QB role behind Mendoza",
@@ -40,17 +47,284 @@
   },
   "Fernando Mendoza": {
     "player_id": "12999",
+    "sleeper_alt_id": "13269",
     "full_name": "Fernando Mendoza",
     "position": "QB",
     "team": "LV",
     "depth_chart_position": "QB",
     "depth_chart_rank": 1,
     "role_status": "confirmed_starter",
+    "injury": {
+      "status": "Active",
+      "body_part": null,
+      "practice_status": "Full",
+      "injury_notes": "Healthy and confirmed Week 6 starter."
+    },
     "recent_news_headlines": [
       "Fernando Mendoza named Raiders starting QB ahead of Week 6",
       "Las Vegas turns to rookie Fernando Mendoza to inject life into passing offense"
     ],
     "news_summary": "Rookie Fernando Mendoza takes over as Las Vegas Raiders starting quarterback.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "De'Von Achane": {
+    "player_id": "9226",
+    "full_name": "De'Von Achane",
+    "position": "RB",
+    "team": "MIA",
+    "depth_chart_position": "RB",
+    "depth_chart_rank": 4,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Knee - ACL",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve following season-ending torn ACL surgery."
+    },
+    "recent_news_headlines": [
+      "De'Von Achane placed on IR with torn ACL; season over"
+    ],
+    "news_summary": "De'Von Achane is on Injured Reserve and out for the season after ACL surgery.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Jaxson Dart": {
+    "player_id": "12508",
+    "full_name": "Jaxson Dart",
+    "position": "QB",
+    "team": "NYG",
+    "depth_chart_position": "QB",
+    "depth_chart_rank": 4,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Knee - Meniscus",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve after season-ending knee meniscus surgery."
+    },
+    "recent_news_headlines": [
+      "Jaxson Dart placed on IR following season-ending knee surgery"
+    ],
+    "news_summary": "Jaxson Dart underwent season-ending knee surgery and is on Injured Reserve.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Jadarian Price": {
+    "player_id": "13286",
+    "full_name": "Jadarian Price",
+    "position": "RB",
+    "team": "SEA",
+    "depth_chart_position": "RB",
+    "depth_chart_rank": 8,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Chest",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve with a chest injury; sidelined until at least Week 8."
+    },
+    "recent_news_headlines": [
+      "Jadarian Price remains on IR with chest injury until at least Week 8"
+    ],
+    "news_summary": "Jadarian Price is on Injured Reserve with a chest injury and ineligible to return until Week 8.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Jonathon Brooks": {
+    "player_id": "11583",
+    "full_name": "Jonathon Brooks",
+    "position": "RB",
+    "team": "CAR",
+    "depth_chart_position": "RB",
+    "depth_chart_rank": 3,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Abdomen",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve recovering from abdomen surgery."
+    },
+    "recent_news_headlines": [
+      "Jonathon Brooks remains on IR following abdomen surgery"
+    ],
+    "news_summary": "Jonathon Brooks is on Injured Reserve recovering from surgery.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "T.J. Hockenson": {
+    "player_id": "5844",
+    "full_name": "T.J. Hockenson",
+    "position": "TE",
+    "team": "MIN",
+    "depth_chart_position": "TE",
+    "depth_chart_rank": 1,
+    "role_status": "confirmed_starter",
+    "injury": {
+      "status": "Out",
+      "body_part": "Concussion",
+      "practice_status": "Out",
+      "injury_notes": "Ruled Out with a concussion."
+    },
+    "recent_news_headlines": [
+      "T.J. Hockenson ruled Out with concussion"
+    ],
+    "news_summary": "T.J. Hockenson is ruled Out with a concussion and Minnesota is on bye in Week 6.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Isiah Pacheco": {
+    "player_id": "8205",
+    "full_name": "Isiah Pacheco",
+    "position": "RB",
+    "team": "DET",
+    "depth_chart_position": "RB",
+    "depth_chart_rank": 4,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Back",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve with a back injury."
+    },
+    "recent_news_headlines": [
+      "Isiah Pacheco on IR with back injury"
+    ],
+    "news_summary": "Isiah Pacheco is on Injured Reserve with a back injury.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Tank Bigsby": {
+    "player_id": "9225",
+    "full_name": "Tank Bigsby",
+    "position": "RB",
+    "team": "PHI",
+    "depth_chart_position": "RB",
+    "depth_chart_rank": 4,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Abdomen",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve following abdomen surgery."
+    },
+    "recent_news_headlines": [
+      "Tank Bigsby on IR after abdomen surgery"
+    ],
+    "news_summary": "Tank Bigsby is on Injured Reserve following abdomen surgery.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Michael Pittman": {
+    "player_id": "6819",
+    "full_name": "Michael Pittman",
+    "position": "WR",
+    "team": "PIT",
+    "depth_chart_position": "WR",
+    "depth_chart_rank": 4,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Foot",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve with plantar fasciitis."
+    },
+    "recent_news_headlines": [
+      "Michael Pittman on IR with foot injury"
+    ],
+    "news_summary": "Michael Pittman is on Injured Reserve with plantar fasciitis.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Terrance Ferguson": {
+    "player_id": "12487",
+    "full_name": "Terrance Ferguson",
+    "position": "TE",
+    "team": "LAR",
+    "depth_chart_position": "TE",
+    "depth_chart_rank": 3,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Ankle",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve with an ankle sprain."
+    },
+    "recent_news_headlines": [
+      "Terrance Ferguson placed on IR with ankle sprain"
+    ],
+    "news_summary": "Terrance Ferguson is on Injured Reserve with an ankle sprain.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Omar Cooper": {
+    "player_id": "13276",
+    "full_name": "Omar Cooper",
+    "position": "WR",
+    "team": "NYJ",
+    "depth_chart_position": "WR",
+    "depth_chart_rank": 9,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Ankle",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve with an ankle sprain."
+    },
+    "recent_news_headlines": [
+      "Omar Cooper on IR with ankle sprain"
+    ],
+    "news_summary": "Omar Cooper is on Injured Reserve with an ankle sprain.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Jonah Coleman": {
+    "player_id": "13345",
+    "full_name": "Jonah Coleman",
+    "position": "RB",
+    "team": "DEN",
+    "depth_chart_position": "RB",
+    "depth_chart_rank": 6,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Ankle",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve with an ankle sprain."
+    },
+    "recent_news_headlines": [
+      "Jonah Coleman on IR with ankle sprain"
+    ],
+    "news_summary": "Jonah Coleman is on Injured Reserve with an ankle sprain.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "Ja'Kobi Lane": {
+    "player_id": "13293",
+    "full_name": "Ja'Kobi Lane",
+    "position": "WR",
+    "team": "BAL",
+    "depth_chart_position": "WR",
+    "depth_chart_rank": 8,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Wrist",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve following wrist surgery."
+    },
+    "recent_news_headlines": [
+      "Ja'Kobi Lane placed on IR after wrist surgery"
+    ],
+    "news_summary": "Ja'Kobi Lane is on Injured Reserve following wrist surgery.",
+    "last_news_updated_utc": "2026-10-14T12:00:00Z"
+  },
+  "De'Zhaun Stribling": {
+    "player_id": "13417",
+    "full_name": "De'Zhaun Stribling",
+    "position": "WR",
+    "team": "SF",
+    "depth_chart_position": "WR",
+    "depth_chart_rank": 12,
+    "role_status": "backup",
+    "injury": {
+      "status": "IR",
+      "body_part": "Ankle",
+      "practice_status": "Out",
+      "injury_notes": "Placed on Injured Reserve following ankle surgery."
+    },
+    "recent_news_headlines": [
+      "De'Zhaun Stribling placed on IR after ankle surgery"
+    ],
+    "news_summary": "De'Zhaun Stribling is on Injured Reserve following ankle surgery.",
     "last_news_updated_utc": "2026-10-14T12:00:00Z"
   }
 }

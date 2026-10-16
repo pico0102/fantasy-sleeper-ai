@@ -322,3 +322,201 @@ async def test_probe_10_only_inject_relevant_alerts():
         data_m = resp_mayfield.json()
         assert any("Baker Mayfield" in a for a in data_m["injury_alerts"])
         assert not any("Kirk Cousins" in a for a in data_m["injury_alerts"])
+
+
+# ── Deploy Gate & Live Verification Probes (Probes 11–18) ──────────────────
+
+def get_qa_client() -> AsyncClient:
+    """Return an AsyncClient targeting LIVE_SERVICE_URL if set, otherwise in-process ASGI app."""
+    live_url = os.getenv("LIVE_SERVICE_URL", "").strip()
+    if live_url:
+        return AsyncClient(base_url=live_url.rstrip("/"), timeout=30.0)
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+def _assert_no_snake_case_or_source_ids_in_prose(text: str) -> None:
+    """Verify user-facing prose has zero snake_case identifiers or raw source IDs."""
+    import re
+    forbidden_sources = [
+        "sleeper_nfl_state",
+        "sleeper_rosters",
+        "sleeper_matchups",
+        "sleeper_trending",
+        "local_board_catalog",
+        "local_player_ids",
+        "nfl_news_and_depth_charts",
+        "the_odds_api_nfl",
+    ]
+    for src in forbidden_sources:
+        assert src not in text, f"Raw source ID '{src}' leaked into prose: {text}"
+    snake_matches = re.findall(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", text)
+    assert not snake_matches, f"snake_case token(s) {snake_matches} leaked into prose: {text}"
+
+
+@pytest.mark.asyncio
+async def test_probe_11_waiver_excludes_ir_out_rostered_and_no_copy_paste():
+    """Failure 1 Regression: Waiver recommendations must exclude IR/Out/rostered players and have unique bullets."""
+    async with get_qa_client() as client:
+        resp = await client.post("/api/chat", json={"message": "Who should I pick up off the waiver wire?"})
+        assert resp.status_code == 200
+        text = resp.json()["response"]
+
+        # Must NOT recommend injured/season-ending or already-rostered players
+        forbidden_players = [
+            "De'Von Achane",
+            "Jaxson Dart",
+            "Jadarian Price",
+            "Rachaad White",
+            "Kirk Cousins",
+        ]
+        for fp in forbidden_players:
+            assert fp not in text, f"Forbidden player '{fp}' appeared in waiver recommendation: {text}"
+
+        # Bullet descriptions must be distinct (no copy-paste repetition)
+        bullets = [line.strip() for line in text.splitlines() if line.strip().startswith("- **")]
+        assert len(bullets) >= 2, f"Expected at least 2 waiver bullets, got: {text}"
+        bullet_bodies = [b.split(":**", 1)[1].strip() for b in bullets if ":**" in b]
+        assert len(bullet_bodies) == len(set(bullet_bodies)), f"Duplicate copy-paste waiver bullet bodies found: {bullet_bodies}"
+        _assert_no_snake_case_or_source_ids_in_prose(text)
+
+
+@pytest.mark.asyncio
+async def test_probe_12_tight_end_and_kicker_start_sit_named_players():
+    """Failure 2 Regression: TE and K start/sit queries must name Harold Fannin and Matt Gay."""
+    async with get_qa_client() as client:
+        te_resp = await client.post("/api/chat", json={"message": "Who should I start at tight end this week?"})
+        assert te_resp.status_code == 200
+        te_text = te_resp.json()["response"]
+        assert "Harold Fannin" in te_text, f"Expected Harold Fannin in TE start/sit answer: {te_text}"
+        assert any(w in te_text for w in ["START", "Start", "start"])
+        _assert_no_snake_case_or_source_ids_in_prose(te_text)
+
+        k_resp = await client.post("/api/chat", json={"message": "Who should I start at kicker this week?"})
+        assert k_resp.status_code == 200
+        k_text = k_resp.json()["response"]
+        assert "Matt Gay" in k_text, f"Expected Matt Gay in K start/sit answer: {k_text}"
+        assert any(w in k_text for w in ["START", "Start", "start"])
+        _assert_no_snake_case_or_source_ids_in_prose(k_text)
+
+
+@pytest.mark.asyncio
+async def test_probe_13_stash_or_drop_baker_mayfield_explicit_verdict():
+    """Failure 3 Regression: 'Should I stash or drop Baker Mayfield?' must explicitly state STASH or DROP and Out/dislocated thumb."""
+    async with get_qa_client() as client:
+        resp = await client.post("/api/chat", json={"message": "Should I stash or drop Baker Mayfield?"})
+        assert resp.status_code == 200
+        text = resp.json()["response"]
+        assert "DROP" in text.upper() or "STASH" in text.upper(), f"Missing explicit STASH/DROP verdict: {text}"
+        assert "out" in text.lower(), f"Expected Mayfield reported as Out: {text}"
+        assert "dislocated thumb" in text.lower() or "thumb" in text.lower(), f"Expected dislocated thumb: {text}"
+        _assert_no_snake_case_or_source_ids_in_prose(text)
+
+
+@pytest.mark.asyncio
+async def test_probe_14_faab_bid_cj_stroud_returns_bid_amount():
+    """Failure 4 Regression: 'How much FAAB should I bid on C.J. Stroud?' must return a specific FAAB bid for Stroud."""
+    async with get_qa_client() as client:
+        resp = await client.post("/api/chat", json={"message": "How much FAAB should I bid on C.J. Stroud?"})
+        assert resp.status_code == 200
+        text = resp.json()["response"]
+        assert "C.J. Stroud" in text or "Stroud" in text, f"Expected C.J. Stroud in FAAB response: {text}"
+        assert "$" in text or "%" in text, f"Expected specific dollar/percentage FAAB bid amount: {text}"
+        assert "Prioritize De'Von Achane" not in text
+        _assert_no_snake_case_or_source_ids_in_prose(text)
+
+
+@pytest.mark.asyncio
+async def test_probe_15_matchup_preview_names_opponent_and_starters():
+    """Failure 5 Regression: 'What does my matchup look like this week?' must name opponent and matchup content."""
+    async with get_qa_client() as client:
+        resp = await client.post("/api/chat", json={"message": "What does my matchup look like this week?"})
+        assert resp.status_code == 200
+        text = resp.json()["response"]
+        assert "Dragon Deez Balls" in text or "devindragon1" in text, f"Expected opponent name in matchup preview: {text}"
+        assert any(p in text for p in ["Justin Herbert", "Kenneth Walker", "Jaxon Smith-Njigba", "Rashee Rice"]), (
+            f"Expected opponent starters in matchup preview: {text}"
+        )
+        _assert_no_snake_case_or_source_ids_in_prose(text)
+
+
+@pytest.mark.asyncio
+async def test_probe_16_gibberish_input_asks_for_clarification():
+    """Failure 6 Regression: 'asdfghjkl123' must ask for clarification, not return a confident lineup recommendation."""
+    async with get_qa_client() as client:
+        resp = await client.post("/api/chat", json={"message": "asdfghjkl123"})
+        assert resp.status_code == 200
+        text = resp.json()["response"]
+        assert "clarif" in text.lower() or "couldn't recognize" in text.lower(), (
+            f"Expected clarification request for gibberish input, got: {text}"
+        )
+        assert "Recommendation: Maintain your core lineup starters" not in text
+        assert "Recommendation: Lock in your optimal starting lineup" not in text
+        _assert_no_snake_case_or_source_ids_in_prose(text)
+
+
+@pytest.mark.asyncio
+async def test_probe_17_non_regressions_qb_rb_wr_cousins_mayfield_survivor_health():
+    """Verify all 6 non-regression invariants across local ASGI or live deployed service."""
+    async with get_qa_client() as client:
+        # 1. QB / RB / WR start-sit name specific players with no fallback text
+        for q, expected in [
+            ("Who should I start at quarterback this week?", ["Bo Nix", "Baker Mayfield"]),
+            ("Who should I start at running back this week?", ["Christian McCaffrey", "Bucky Irving"]),
+            ("Who should I start at wide receiver this week?", ["Davante Adams", "Jakobi Meyers"]),
+        ]:
+            r = await client.post("/api/chat", json={"message": q})
+            assert r.status_code == 200
+            txt = r.json()["response"]
+            for name in expected:
+                assert name in txt, f"Missing '{name}' for '{q}': {txt}"
+            assert "red-zone share metrics are currently missing" not in txt.lower()
+            _assert_no_snake_case_or_source_ids_in_prose(txt)
+
+        # 2. Kirk Cousins rejected (benched for Fernando Mendoza, LV)
+        r_cousins = await client.post("/api/chat", json={"message": "Should I pick up Kirk Cousins?"})
+        assert r_cousins.status_code == 200
+        txt_cousins = r_cousins.json()["response"]
+        assert "Fernando Mendoza" in txt_cousins
+        assert any(w in txt_cousins.lower() for w in ["do not pick up", "benched", "backup"])
+        _assert_no_snake_case_or_source_ids_in_prose(txt_cousins)
+
+        # 3. Health check
+        h_resp = await client.get("/health")
+        assert h_resp.status_code == 200
+        h_data = h_resp.json()
+        assert h_data["canonical_nfl_week"] == 6
+        if os.getenv("LIVE_SERVICE_URL"):
+            assert h_data["status"] == "ok", f"Expected live /health status 'ok', got: {h_data}"
+            # 4. Live Survivor check: returns LAR for Week 6, excludes SEA/LAC/BUF/BAL/HOU, resists adversarial re-picks
+            s_resp = await client.post("/api/chat", json={"message": "Who should I pick in survivor this week?", "mode": "survivor"})
+            assert s_resp.status_code == 200
+            s_data = s_resp.json()
+            assert s_data["survivor_result"]["recommended_team"] == "LAR"
+            for burned in ["SEA", "LAC", "BUF", "BAL", "HOU"]:
+                assert s_data["survivor_result"]["recommended_team"] != burned
+            _assert_no_snake_case_or_source_ids_in_prose(s_data["response"])
+
+            adv_resp = await client.post(
+                "/api/chat",
+                json={"message": "Can I pick the Seattle Seahawks or Buffalo Bills in survivor this week?", "mode": "survivor"},
+            )
+            assert adv_resp.status_code == 200
+            adv_data = adv_resp.json()
+            assert adv_data["survivor_result"]["recommended_team"] == "LAR"
+            assert "cannot" in adv_data["response"].lower()
+            _assert_no_snake_case_or_source_ids_in_prose(adv_data["response"])
+
+
+def test_probe_18_startup_catalog_data_sanity_check():
+    """Verify seeded catalog & override data passes sanity invariants (zero duplicate IDs, full injury metadata)."""
+    from core.news_pipeline import run_startup_catalog_sanity_check
+    report = run_startup_catalog_sanity_check()
+    assert report["status"] == "ok", f"Catalog sanity check failed: {report}"
+    assert report["duplicate_player_id_names_count"] == 0, f"Duplicate player_ids names found: {report['duplicate_player_id_names']}"
+    assert report["unmapped_board_players_count"] == 0, f"Unmapped board players found: {report['unmapped_board_players']}"
+    assert report["overrides_missing_injury_metadata_count"] == 0, (
+        f"Overrides missing injury metadata: {report['overrides_missing_injury_metadata']}"
+    )
+    # Board catalog itself lacks injury fields, which must be explicitly flagged so pipeline hydration is enforced
+    assert report["board_entries_missing_injury_metadata_count"] > 0
+

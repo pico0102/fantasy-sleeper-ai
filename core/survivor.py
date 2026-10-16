@@ -79,6 +79,7 @@ class SurvivorEngine:
     def evaluate_week(
         snapshot: WorldStateSnapshot,
         used_teams: Optional[List[str]] = None,
+        query: Optional[str] = None,
     ) -> SurvivorPickResult:
         """Evaluate Survivor pool for canonical NFL week.
 
@@ -136,7 +137,7 @@ class SurvivorEngine:
             # Fallback when all favorites have been used
             refusal_message = (
                 f"No eligible survivor favorites remaining for Week {snapshot.nfl_week}. "
-                f"All available favorites have already been selected in used_teams: {sorted(list(used))}."
+                f"All available favorites have already been used in previous weeks: {', '.join(sorted(list(used)))}."
             )
             return SurvivorPickResult(
                 status="guardrail_rejected",
@@ -154,15 +155,40 @@ class SurvivorEngine:
         eligible_games.sort(key=lambda x: (x.spread_points, -x.implied_win_prob))
         top_pick = eligible_games[0]
 
+        # Check if user query adversarially requests a previously burned team
+        adversarial_note = ""
+        if query:
+            burned_name_map = {
+                "SEA": ["sea", "seattle", "seahawks"],
+                "LAC": ["lac", "chargers", "los angeles chargers", "la chargers"],
+                "BUF": ["buf", "buffalo", "bills"],
+                "BAL": ["bal", "baltimore", "ravens"],
+                "HOU": ["hou", "houston", "texans"],
+            }
+            q_low = f" {query.lower()} "
+            requested_burned: List[str] = []
+            for abbr in sorted(used):
+                keywords = burned_name_map.get(abbr, [abbr.lower()])
+                if any(f" {kw} " in q_low or f" {kw}?" in q_low or f" {kw}." in q_low or f" {kw}," in q_low for kw in keywords):
+                    requested_burned.append(abbr)
+            if requested_burned:
+                burned_str = ", ".join(requested_burned)
+                adversarial_note = (
+                    f"** Eligibility Rejection:** You **cannot** pick **{burned_str}** in Week {snapshot.nfl_week} "
+                    f"because you already used {', '.join(sorted(list(used)))} in prior weeks. "
+                    f"Survivor pool rules strictly prohibit repeating a team.\n\n"
+                )
+
         reasoning = (
             f"### 🛡️ Verified Survivor Recommendation — Week {snapshot.nfl_week}\n\n"
+            f"{adversarial_note}"
             f"**Recommended Pick:** **{top_pick.favorite_team}** (vs {top_pick.underdog_team})\n"
             f"- **Point Spread:** `{top_pick.spread_points:+.1f}` (Favored by {abs(top_pick.spread_points):.1f} pts)\n"
             f"- **Implied Win Probability:** `{top_pick.implied_win_prob:.1%}`\n"
             f"- **Moneyline:** `{top_pick.favorite_moneyline or 'N/A'}`\n"
-            f"- **Source:** `the_odds_api_nfl` ({odds_prov.record_count} games verified)\n\n"
+            f"- **Odds Verification:** Live NFL sportsbook spreads ({odds_prov.record_count} games verified)\n\n"
             f"**Strategy & Future Value:** {top_pick.favorite_team} offers the strongest win equity on the board "
-            f"while preserving future elite options. None of the previously used teams ({', '.join(sorted(list(used))) or 'None'}) were repeated."
+            f"while preserving future elite options. Previously used teams ({', '.join(sorted(list(used))) or 'None'}) were strictly excluded."
         )
 
         return SurvivorPickResult(
