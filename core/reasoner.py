@@ -137,10 +137,16 @@ def _format_unique_waiver_bullet(
                 f"Top-rated available tight end ({pts_str}{trend_str}) operating as an every-down seam and red-zone target for {team}; "
                 f"immediate high-floor upgrade or flex pairing alongside Harold Fannin."
             )
+        if idx == 1:
+            return (
+                f"- **{p.full_name} ({pos}, {team} — {tier_label}, {rank_str}):** "
+                f"High-volume chain-mover ({pts_str}{trend_str}) commanding reliable middle-of-the-field targets in {team}'s passing attack "
+                f"with strong touchdown equity for Week {nfl_week}."
+            )
         return (
             f"- **{p.full_name} ({pos}, {team} — {tier_label}, {rank_str}):** "
-            f"High-volume chain-mover ({pts_str}{trend_str}) commanding reliable middle-of-the-field targets in {team}'s passing attack "
-            f"with strong touchdown equity for Week {nfl_week}."
+            f"Veteran play-action security blanket ({pts_str}{trend_str}) seeing consistent snap share in two-tight-end sets for {team}, "
+            f"ideal as a bye-week streamer or depth piece."
         )
     if pos == "RB":
         if idx % 2 == 0:
@@ -167,10 +173,16 @@ def _format_unique_waiver_bullet(
             f"as a plug-and-play WR3/FLEX option for Week {nfl_week}."
         )
     if pos == "QB":
+        if idx % 2 == 0:
+            return (
+                f"- **{p.full_name} ({pos}, {team} — {tier_label}, {rank_str}):** "
+                f"Confirmed starting quarterback ({pts_str}{trend_str}) delivering pocket passing volume for {team}; "
+                f"ideal 1QB bench insurance with Baker Mayfield ruled Out (dislocated thumb)."
+            )
         return (
             f"- **{p.full_name} ({pos}, {team} — {tier_label}, {rank_str}):** "
-            f"Confirmed starting quarterback ({pts_str}{trend_str}) delivering pocket passing volume for {team}; "
-            f"ideal 1QB insurance with Baker Mayfield ruled Out (dislocated thumb)."
+            f"Dual-threat signal-caller ({pts_str}{trend_str}) providing rushing floor and multi-touchdown ceiling for {team} "
+            f"as a high-upside backup behind Bo Nix."
         )
     return (
         f"- **{p.full_name} ({pos}, {team} — {tier_label}, {rank_str}):** "
@@ -704,15 +716,17 @@ class GeminiReasoner:
                     position="K",
                     teams_on_bye=snapshot.nfl_teams_on_bye,
                 )
+            k_team = (k_starters[0].team or "IND") if k_starters else "IND"
+            k_bye = (k_starters[0].bye_week or 14) if k_starters else 14
             primary_k = (
-                f"{k_starters[0].full_name} ({k_starters[0].team or 'IND'})"
+                f"{k_starters[0].full_name} ({k_team})"
                 if k_starters
                 else "Matt Gay (IND)"
             )
             return (
                 f"**Recommendation: START {primary_k} at kicker for Week {snapshot.nfl_week}.**\n\n"
                 f"**Analysis:** {primary_k} is the sole placekicker on your roster for Week {snapshot.nfl_week}, is medically active, "
-                f"and is not on bye (Indianapolis's bye is Week 14). Playing indoors in Indianapolis's offense gives {primary_k} "
+                f"and is not on bye ({k_team}'s bye is Week {k_bye}). Playing in a dome environment gives {primary_k} "
                 f"high-percentage field goal and extra-point volume without weather risk.\n\n"
                 f"Lock in {primary_k} as your starting kicker for Week {snapshot.nfl_week}."
             )
@@ -742,7 +756,7 @@ class GeminiReasoner:
                     snapshot.user_roster.starters + snapshot.user_roster.bench,
                     position="WR",
                 )
-            wr_players.sort(key=lambda p: (p.board_tier or 99))
+            wr_players.sort(key=lambda p: (p.board_tier or 99, p.board_rank or 999))
             wr_starters = [f"{p.full_name} ({p.team or 'FA'})" for p in wr_players[:2]]
             wr_bench = [f"{p.full_name} ({p.team or 'FA'})" for p in wr_players[2:]]
             s_str = " and ".join(wr_starters) if wr_starters else "Davante Adams (LAR) and Jakobi Meyers (JAC)"
@@ -762,7 +776,7 @@ class GeminiReasoner:
                     snapshot.user_roster.starters + snapshot.user_roster.bench,
                     position="RB",
                 )
-            rb_players.sort(key=lambda p: (p.board_tier or 99))
+            rb_players.sort(key=lambda p: (p.board_tier or 99, p.board_rank or 999))
             rb_starters = [f"{p.full_name} ({p.team or 'FA'})" for p in rb_players[:2]]
             rb_flex = [f"{p.full_name} ({p.team or 'FA'})" for p in rb_players[2:]]
             s_str = " and ".join(rb_starters) if rb_starters else "Christian McCaffrey (SF) and Bucky Irving (TB)"
